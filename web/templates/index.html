@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Guard — OWASP API Security Intelligence</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+
+<body>
+
+<div class="background-grid"></div>
+<div class="cyber-glow cyber-glow-1"></div>
+<div class="cyber-glow cyber-glow-2"></div>
+
+<!-- SCAN PROGRESS OVERLAY -->
+<div id="scan-overlay" class="scan-overlay hidden">
+    <div class="scan-modal">
+        <div class="radar-container">
+            <div class="radar-sweep"></div>
+            <div class="radar-circle radar-circle-1"></div>
+            <div class="radar-circle radar-circle-2"></div>
+            <div class="radar-circle radar-circle-3"></div>
+            <div class="radar-crosshair-x"></div>
+            <div class="radar-crosshair-y"></div>
+            <div class="radar-blip blip-1"></div>
+            <div class="radar-blip blip-2"></div>
+            <div class="radar-blip blip-3"></div>
+        </div>
+
+        <div class="scan-status-info">
+            <div class="scan-status-badge">
+                <span class="status-pulse-dot"></span>
+                SCAN IN PROGRESS
+            </div>
+
+            <h3 id="overlay-target-title" class="scan-status-target">Target: <span id="overlay-target-url">Analyzing...</span></h3>
+
+            <div class="cyber-progress-bar">
+                <div id="scan-progress-fill" class="cyber-progress-fill"></div>
+            </div>
+
+            <div class="scan-terminal-log">
+                <div id="scan-log-feed" class="scan-log-feed">
+                    <p class="log-line active"><span class="log-prefix">◈</span> Initializing scan protocol and engine configuration...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+
+    <!-- HEADER -->
+    <header class="hero">
+        <div class="logo">
+            <span class="logo-icon">◈</span>
+            <div>
+                <h1>API<span>GUARD</span></h1>
+                <p>OWASP API SECURITY SCANNER &amp; AUDITOR</p>
+            </div>
+        </div>
+
+        <nav class="nav-links">
+            <a href="/" class="nav-link active"><span class="nav-icon">⌬</span> New Scan</a>
+            <a href="/history" class="nav-link"><span class="nav-icon">📜</span> Scan History</a>
+        </nav>
+
+        <div class="system-status">
+            <span class="status-dot"></span>
+            <span class="status-text">SYSTEM ONLINE</span>
+            <span class="status-version">v0.1.0</span>
+        </div>
+    </header>
+
+    <!-- HERO SECTION -->
+    <section class="hero-text">
+        <div class="terminal-line">
+            <span>root@api-guard:~$</span> initialize_security_protocol --owasp-top-10
+        </div>
+        <h2>
+            Automated API Security.
+            <br>
+            <span>Instant Threat Detection.</span>
+        </h2>
+        <p>
+            Deep vulnerability auditing against OWASP API Security Top 10: Broken Object Level Authorization (BOLA),
+            token leaks, CORS misconfigurations, sensitive data disclosure, rate-limiting vulnerabilities, and outdated version exposure.
+        </p>
+    </section>
+
+    <!-- SCAN CONFIGURATION PANEL -->
+    <section class="scan-card cyber-panel">
+        <div class="panel-header">
+            <span class="panel-icon">⌬</span>
+            <div>
+                <h3>SCAN CONFIGURATION</h3>
+                <span class="panel-subtitle">Configure your target API and audit parameters</span>
+            </div>
+        </div>
+
+        {% if error %}
+        <div class="scan-error-banner">
+            <span class="error-icon">⚠️</span>
+            <div>
+                <strong>Scan Error:</strong> {{ error }}
+            </div>
+        </div>
+        {% endif %}
+
+        <form id="scan-form" action="/scan" method="post">
+            <div class="form-grid">
+                <div class="form-group form-group-url">
+                    <label for="input-url">
+                        TARGET API URL <span class="required-star">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🌐</span>
+                        <input
+                            id="input-url"
+                            type="url"
+                            name="url"
+                            placeholder="http://127.0.0.1:8000 or https://api.example.com"
+                            value="{{ selected_url or '' }}"
+                            required
+                        >
+                    </div>
+                </div>
+
+                <div class="form-group form-group-mode">
+                    <label for="input-mode">SCAN MODE</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">⚡</span>
+                        <select id="input-mode" name="mode">
+                            <option value="passive" {% if selected_mode == "passive" %}selected{% endif %}>
+                                PASSIVE SCAN (Safe / Non-Intrusive)
+                            </option>
+                            <option value="active" {% if selected_mode == "active" %}selected{% endif %}>
+                                ACTIVE SCAN (Includes Rate-Limit Stress)
+                            </option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group form-group-token">
+                    <label for="input-token">
+                        BEARER TOKEN <span class="optional-label">(Optional Authentication)</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🔑</span>
+                        <input
+                            id="input-token"
+                            type="password"
+                            name="token"
+                            placeholder="Bearer JWT or API key for authenticated endpoints"
+                            autocomplete="off"
+                        >
+                        <button type="button" id="toggle-token-visibility" class="token-toggle-btn" title="Toggle visibility">👁</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="active-mode-warning" class="active-mode-warning {% if selected_mode != 'active' %}hidden{% endif %}">
+                <span class="warning-icon">⚠️</span>
+                <div>
+                    <strong>Active Scan Mode:</strong> Sends stress payloads and rate-limit probe bursts. Only test targets you have explicit authorization to audit.
+                </div>
+            </div>
+
+            <button type="submit" id="scan-button">
+                <span id="button-text">LAUNCH SECURITY AUDIT</span>
+                <span id="loader" class="loader hidden"></span>
+            </button>
+        </form>
+    </section>
+
+    {% if result %}
+
+    <!-- RESULTS SECTION -->
+    <section class="results">
+
+        <div class="section-title">
+            <div>
+                <span class="section-label">AUDIT COMPLETE</span>
+                <h2>SECURITY ANALYSIS REPORT</h2>
+            </div>
+            <div class="results-meta-badges">
+                <div class="scan-mode-badge {{ selected_mode }}">
+                    MODE: {{ selected_mode|upper }}
+                </div>
+                {% if token_provided %}
+                <div class="auth-badge authenticated">
+                    AUTH: BEARER TOKEN ACTIVE
+                </div>
+                {% else %}
+                <div class="auth-badge unauthenticated">
+                    AUTH: UNAUTHENTICATED
+                </div>
+                {% endif %}
+                {% if saved_scan_id %}
+                <a href="/history/{{ saved_scan_id }}" class="scan-saved-badge" title="View historical record in database">
+                    💾 SAVED AS SCAN #{{ saved_scan_id }} ➔
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- REPORT EXPORT ACTIONS -->
+        <div class="report-export-bar">
+            <div class="export-bar-label">
+                <span class="export-bar-icon">📥</span>
+                <span class="export-bar-title">EXPORT AUDIT REPORT:</span>
+            </div>
+            <div class="export-btn-group">
+                {% if saved_scan_id %}
+                <a href="/history/{{ saved_scan_id }}/export/pdf" class="btn-export btn-export-pdf" target="_blank" title="Download Executive PDF Report">
+                    <span class="export-icon">📄</span> Download PDF
+                </a>
+                <a href="/history/{{ saved_scan_id }}/export/html" class="btn-export btn-export-html" target="_blank" title="Download Standalone HTML Report">
+                    <span class="export-icon">🌐</span> Download HTML
+                </a>
+                <a href="/history/{{ saved_scan_id }}/export/json" class="btn-export btn-export-json" target="_blank" title="Download Raw JSON Finding Data">
+                    <span class="export-icon">📦</span> Download JSON
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        {% set critical_findings = result.findings | selectattr("severity.value", "equalto", "CRITICAL") | list %}
+        {% set high_findings = result.findings | selectattr("severity.value", "equalto", "HIGH") | list %}
+        {% set medium_findings = result.findings | selectattr("severity.value", "equalto", "MEDIUM") | list %}
+        {% set low_findings = result.findings | selectattr("severity.value", "equalto", "LOW") | list %}
+
+        <!-- DASHBOARD HERO: GAUGE & OVERVIEW -->
+        <section class="score-dashboard cyber-panel">
+
+            <!-- SECURITY SCORE GAUGE -->
+            <div class="gauge-wrapper">
+                <span class="panel-label">SECURITY POSTURE SCORE</span>
+
+                {% set score = result.security_score %}
+                {% if score >= 80 %}
+                    {% set gauge_class = "gauge-good" %}
+                    {% set score_color = "var(--success)" %}
+                {% elif score >= 60 %}
+                    {% set gauge_class = "gauge-moderate" %}
+                    {% set score_color = "var(--low)" %}
+                {% elif score >= 40 %}
+                    {% set gauge_class = "gauge-warning" %}
+                    {% set score_color = "var(--high)" %}
+                {% else %}
+                    {% set gauge_class = "gauge-critical" %}
+                    {% set score_color = "var(--critical)" %}
+                {% endif %}
+
+                <!-- Circular SVG Meter -->
+                <div class="gauge-container {{ gauge_class }}">
+                    <svg class="gauge-svg" viewBox="0 0 200 200">
+                        <defs>
+                            <linearGradient id="gaugeGradientGood" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#00e5ff" />
+                                <stop offset="100%" stop-color="#00e676" />
+                            </linearGradient>
+                            <linearGradient id="gaugeGradientModerate" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#ffd600" />
+                                <stop offset="100%" stop-color="#00e5ff" />
+                            </linearGradient>
+                            <linearGradient id="gaugeGradientWarning" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#ff6d00" />
+                                <stop offset="100%" stop-color="#ffd600" />
+                            </linearGradient>
+                            <linearGradient id="gaugeGradientCritical" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#ff1744" />
+                                <stop offset="100%" stop-color="#ff6d00" />
+                            </linearGradient>
+                            <filter id="gaugeGlow">
+                                <feGaussianBlur stdDeviation="3.5" result="coloredBlur" />
+                                <feMerge>
+                                    <feMergeNode in="coloredBlur" />
+                                    <feMergeNode in="SourceGraphic" />
+                                </feMerge>
+                            </filter>
+                        </defs>
+
+                        <!-- Background Track Circle -->
+                        <circle
+                            class="gauge-bg-track"
+                            cx="100"
+                            cy="100"
+                            r="80"
+                        />
+
+                        <!-- Dynamic Progress Arc (circumference = 2 * PI * 80 ≈ 502.65) -->
+                        {% set circumference = 502.65 %}
+                        {% set dashoffset = circumference - (circumference * score / 100) %}
+                        <circle
+                            class="gauge-progress-arc"
+                            cx="100"
+                            cy="100"
+                            r="80"
+                            stroke-dasharray="{{ circumference }}"
+                            stroke-dashoffset="{{ dashoffset }}"
+                        />
+                    </svg>
+
+                    <div class="gauge-center-content">
+                        <div class="gauge-score-val">
+                            {{ "%.1f"|format(result.security_score) }}
+                        </div>
+                        <div class="gauge-max">/ 100</div>
+                        <div class="gauge-risk-pill risk-{{ result.risk_level|lower }}">
+                            {{ result.risk_level }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="gauge-caption">
+                    Calculated from CVSS-weighted findings and OWASP API severity metrics.
+                </div>
+            </div>
+
+            <!-- THREAT ASSESSMENT & SPEC INFO -->
+            <div class="threat-overview">
+                <span class="panel-label">THREAT ASSESSMENT &amp; SPECIFICATION</span>
+
+                <div class="threat-status-box risk-border-{{ result.risk_level|lower }}">
+                    <div class="threat-header">
+                        <span class="threat-icon">
+                            {% if result.risk_level == "CRITICAL" %}🚨
+                            {% elif result.risk_level == "HIGH" %}⚠️
+                            {% elif result.risk_level == "MEDIUM" %}⚡
+                            {% else %}🛡️
+                            {% endif %}
+                        </span>
+                        <div>
+                            <h4>THREAT POSTURE: {{ result.risk_level }}</h4>
+                            <p>
+                                {% if result.risk_level == "CRITICAL" %}
+                                Severe vulnerabilities detected. Unauthorized access, data leakage, or privilege escalation risks present. Immediate remediation required.
+                                {% elif result.risk_level == "HIGH" %}
+                                High-impact vulnerabilities detected. Security headers, outdated endpoints, or token disclosures require prompt attention.
+                                {% elif result.risk_level == "MEDIUM" %}
+                                Moderate security exposures identified. Review CORS policies, method tampering, and rate-limiting controls.
+                                {% else %}
+                                Healthy security posture with minimal exposure. Maintain defensive controls and monitor endpoints.
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TARGET & SPECIFICATION METRICS -->
+                <div class="target-meta-list">
+                    <div class="target-meta-item">
+                        <span class="meta-name">TARGET URL</span>
+                        <code class="meta-value">{{ result.target }}</code>
+                    </div>
+                    <div class="target-meta-item">
+                        <span class="meta-name">SPECIFICATION DISCOVERY</span>
+                        <span class="meta-value">
+                            {{ result.discovery_source }}
+                            {% if result.specification_url %}
+                            — <a href="{{ result.specification_url }}" target="_blank" rel="noopener" class="cyber-link">{{ result.specification_url }}</a>
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="target-meta-item">
+                        <span class="meta-name">ENDPOINTS AUDITED</span>
+                        <span class="meta-value"><strong>{{ result.endpoints_scanned }}</strong> active routes scanned ({{ result.unreachable_endpoints }} unreachable)</span>
+                    </div>
+                </div>
+
+            </div>
+
+        </section>
+
+        <!-- SEVERITY CARDS / INTERACTIVE COUNTERS -->
+        <section class="severity-section">
+            <div class="section-title-small">
+                <span>VULNERABILITY DISTRIBUTION &amp; FILTERS</span>
+                <h3>SEVERITY BREAKDOWN</h3>
+            </div>
+
+            <div class="severity-grid">
+                <!-- CRITICAL CARD -->
+                <div class="severity-card critical" data-filter="CRITICAL" title="Click to filter by CRITICAL findings">
+                    <div class="severity-card-top">
+                        <span class="severity-icon">🔴</span>
+                        <span class="severity-label">CRITICAL</span>
+                    </div>
+                    <strong class="severity-count">{{ critical_findings|length }}</strong>
+                    <div class="severity-filter-hint">Click to filter table</div>
+                </div>
+
+                <!-- HIGH CARD -->
+                <div class="severity-card high" data-filter="HIGH" title="Click to filter by HIGH findings">
+                    <div class="severity-card-top">
+                        <span class="severity-icon">🟠</span>
+                        <span class="severity-label">HIGH</span>
+                    </div>
+                    <strong class="severity-count">{{ high_findings|length }}</strong>
+                    <div class="severity-filter-hint">Click to filter table</div>
+                </div>
+
+                <!-- MEDIUM CARD -->
+                <div class="severity-card medium" data-filter="MEDIUM" title="Click to filter by MEDIUM findings">
+                    <div class="severity-card-top">
+                        <span class="severity-icon">🟡</span>
+                        <span class="severity-label">MEDIUM</span>
+                    </div>
+                    <strong class="severity-count">{{ medium_findings|length }}</strong>
+                    <div class="severity-filter-hint">Click to filter table</div>
+                </div>
+
+                <!-- LOW CARD -->
+                <div class="severity-card low" data-filter="LOW" title="Click to filter by LOW findings">
+                    <div class="severity-card-top">
+                        <span class="severity-icon">🔵</span>
+                        <span class="severity-label">LOW</span>
+                    </div>
+                    <strong class="severity-count">{{ low_findings|length }}</strong>
+                    <div class="severity-filter-hint">Click to filter table</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SYSTEM STATS GRID -->
+        <div class="summary-grid">
+            <div class="summary-card">
+                <span class="stat-label">TOTAL FINDINGS</span>
+                <strong class="number {% if result.findings %}danger-number{% endif %}">
+                    {{ result.findings|length }}
+                </strong>
+            </div>
+
+            <div class="summary-card">
+                <span class="stat-label">ENDPOINTS SCANNED</span>
+                <strong class="number">
+                    {{ result.endpoints_scanned }}
+                </strong>
+            </div>
+
+            <div class="summary-card">
+                <span class="stat-label">UNREACHABLE ENDPOINTS</span>
+                <strong class="number">
+                    {{ result.unreachable_endpoints }}
+                </strong>
+            </div>
+
+            <div class="summary-card">
+                <span class="stat-label">ACTIVE FILTERS</span>
+                <div id="active-filter-indicator" class="active-filter-text">Showing All Findings</div>
+            </div>
+        </div>
+
+        <!-- FINDINGS TABLE SECTION -->
+        <section class="findings-section cyber-panel">
+
+            <div class="findings-header">
+                <div class="findings-header-title">
+                    <span class="panel-icon">🔎</span>
+                    <div>
+                        <h3>DETECTED SECURITY FINDINGS</h3>
+                        <span class="panel-subtitle">
+                            Displaying <span id="visible-count">{{ result.findings|length }}</span> of {{ result.findings|length }} issues
+                        </span>
+                    </div>
+                </div>
+
+                <!-- CONTROLS & FILTERS -->
+                <div class="findings-toolbar">
+                    <div class="search-box">
+                        <span class="search-icon">🔍</span>
+                        <input
+                            type="text"
+                            id="findings-search"
+                            placeholder="Search endpoint, vulnerability title, or OWASP category..."
+                            autocomplete="off"
+                        >
+                        <button type="button" id="clear-search-btn" class="clear-search-btn hidden" title="Clear search">✕</button>
+                    </div>
+
+                    <div class="filter-chips">
+                        <button type="button" class="filter-chip active" data-severity="ALL">ALL ({{ result.findings|length }})</button>
+                        <button type="button" class="filter-chip chip-critical" data-severity="CRITICAL">CRITICAL ({{ critical_findings|length }})</button>
+                        <button type="button" class="filter-chip chip-high" data-severity="HIGH">HIGH ({{ high_findings|length }})</button>
+                        <button type="button" class="filter-chip chip-medium" data-severity="MEDIUM">MEDIUM ({{ medium_findings|length }})</button>
+                        <button type="button" class="filter-chip chip-low" data-severity="LOW">LOW ({{ low_findings|length }})</button>
+                    </div>
+
+                    <button type="button" id="toggle-all-details-btn" class="cyber-btn-secondary">
+                        <span id="toggle-all-text">EXPAND ALL</span>
+                    </button>
+                </div>
+            </div>
+
+            {% if result.findings %}
+
+            <div class="table-container">
+                <table id="findings-table">
+                    <thead>
+                        <tr>
+                            <th class="col-toggle"></th>
+                            <th class="col-severity">SEVERITY</th>
+                            <th class="col-method">METHOD</th>
+                            <th class="col-endpoint">TARGET ENDPOINT</th>
+                            <th class="col-vulnerability">VULNERABILITY</th>
+                            <th class="col-owasp">OWASP CATEGORY</th>
+                            <th class="col-action">DETAILS</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for finding in result.findings %}
+                        <!-- Main Finding Row -->
+                        <tr
+                            class="finding-row"
+                            data-index="{{ loop.index }}"
+                            data-severity="{{ finding.severity.value }}"
+                            data-method="{{ finding.method or '' }}"
+                            data-endpoint="{{ finding.endpoint }}"
+                            data-title="{{ finding.title }}"
+                            data-owasp="{{ finding.owasp or '' }}"
+                        >
+                            <td class="col-toggle">
+                                <button
+                                    type="button"
+                                    class="row-toggle-btn"
+                                    aria-expanded="false"
+                                    aria-controls="detail-{{ loop.index }}"
+                                    title="Toggle details"
+                                >
+                                    <span class="chevron-icon">▸</span>
+                                </button>
+                            </td>
+
+                            <td class="col-severity">
+                                <span class="badge {{ finding.severity.value|lower }}">
+                                    {{ finding.severity.value }}
+                                </span>
+                            </td>
+
+                            <td class="col-method">
+                                <span class="method-badge method-{{ (finding.method or 'GET')|lower }}">
+                                    {{ finding.method or "GET" }}
+                                </span>
+                            </td>
+
+                            <td class="col-endpoint">
+                                <div class="endpoint-cell">
+                                    <code class="endpoint-code" title="{{ finding.endpoint }}">{{ finding.endpoint }}</code>
+                                    <button type="button" class="copy-endpoint-btn" data-copy="{{ finding.endpoint }}" title="Copy endpoint">📋</button>
+                                </div>
+                            </td>
+
+                            <td class="col-vulnerability">
+                                <strong class="finding-title">
+                                    {{ finding.title }}
+                                </strong>
+                            </td>
+
+                            <td class="col-owasp">
+                                {% if finding.owasp %}
+                                <span class="owasp-tag" title="{{ finding.owasp }}">
+                                    {{ finding.owasp }}
+                                </span>
+                                {% else %}
+                                <span class="owasp-tag owasp-tag-empty">N/A</span>
+                                {% endif %}
+                            </td>
+
+                            <td class="col-action">
+                                <span class="inspect-btn">View ▾</span>
+                            </td>
+                        </tr>
+
+                        <!-- Expandable Detail Drawer Row -->
+                        <tr
+                            id="detail-{{ loop.index }}"
+                            class="finding-detail-row hidden"
+                            data-parent-index="{{ loop.index }}"
+                        >
+                            <td colspan="7" class="detail-cell">
+                                <div class="detail-drawer">
+                                    <div class="detail-grid">
+
+                                        <!-- DESCRIPTION CARD -->
+                                        <div class="detail-card">
+                                            <div class="detail-card-header">
+                                                <span class="detail-icon">📋</span>
+                                                <h5>VULNERABILITY DESCRIPTION</h5>
+                                            </div>
+                                            <p class="detail-text">
+                                                {{ finding.description or "No detailed description available." }}
+                                            </p>
+                                        </div>
+
+                                        <!-- OWASP CATEGORY CARD -->
+                                        <div class="detail-card">
+                                            <div class="detail-card-header">
+                                                <span class="detail-icon">🛡️</span>
+                                                <h5>OWASP API SECURITY TOP 10</h5>
+                                            </div>
+                                            <div class="owasp-detail-content">
+                                                {% if finding.owasp %}
+                                                <div class="owasp-pill">{{ finding.owasp }}</div>
+                                                <p class="owasp-desc">
+                                                    Classified under the OWASP API Security Project standard taxonomy.
+                                                </p>
+                                                {% else %}
+                                                <p class="detail-text text-muted">Standard API Security Best Practice Check</p>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+
+                                        <!-- RECOMMENDATION / REMEDIATION CARD -->
+                                        <div class="detail-card detail-card-remediation">
+                                            <div class="detail-card-header">
+                                                <span class="detail-icon">💡</span>
+                                                <h5>REMEDIATION RECOMMENDATIONS</h5>
+                                            </div>
+                                            <div class="remediation-box">
+                                                <p class="remediation-text">
+                                                    {{ finding.recommendation or "Review endpoint security configuration and follow OWASP best practices." }}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <!-- ENDPOINT CONTEXT CARD -->
+                                        <div class="detail-card">
+                                            <div class="detail-card-header">
+                                                <span class="detail-icon">🎯</span>
+                                                <h5>TARGET CONTEXT</h5>
+                                            </div>
+                                            <div class="context-item">
+                                                <span class="context-key">HTTP Verb:</span>
+                                                <span class="method-badge method-{{ (finding.method or 'GET')|lower }}">{{ finding.method or "GET" }}</span>
+                                            </div>
+                                            <div class="context-item">
+                                                <span class="context-key">Full URL:</span>
+                                                <code class="context-url">{{ finding.endpoint }}</code>
+                                            </div>
+                                            <div class="context-item">
+                                                <span class="context-key">Impact Severity:</span>
+                                                <span class="badge {{ finding.severity.value|lower }}">{{ finding.severity.value }}</span>
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="no-filter-results" class="no-filter-results hidden">
+                <span>🔍</span>
+                <h4>No matching vulnerabilities found</h4>
+                <p>Try clearing your search query or selecting a different severity filter.</p>
+                <button type="button" id="reset-filters-btn" class="cyber-btn-secondary">Reset Filters</button>
+            </div>
+
+            {% else %}
+
+            <div class="success-message">
+                <span>✓</span>
+                <h4>NO SECURITY VULNERABILITIES DETECTED</h4>
+                <p>All scanned endpoints conformed to active security policies and checks.</p>
+            </div>
+
+            {% endif %}
+
+        </section>
+
+    </section>
+
+    {% endif %}
+
+    <!-- FOOTER -->
+    <footer>
+        <div>
+            <strong>API GUARD INTELLIGENCE</strong> &bull; OWASP API SECURITY AUDITOR
+        </div>
+        <div class="footer-links">
+            <span>Scan Engine: Active</span>
+            <span>Security Model: Passive/Active</span>
+            <span>Standards: OWASP API Security Top 10</span>
+        </div>
+    </footer>
+
+</div>
+
+<!-- TOAST NOTIFICATION -->
+<div id="cyber-toast" class="cyber-toast hidden"></div>
+
+<script src="{{ url_for('static', path='script.js') }}"></script>
+</body>
+</html>

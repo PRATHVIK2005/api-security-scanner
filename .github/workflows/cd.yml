@@ -1,0 +1,101 @@
+name: CD — Release Assets
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build-release-assets:
+    name: Build & Upload Release Assets
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ─────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      # ── 3. Install dependencies ───────────────────────────────────────────
+      - name: Install project and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # ── 4. Run full test suite ────────────────────────────────────────────
+      - name: Run pytest (sanity check before release)
+        run: |
+          python -m pytest -q
+
+      # ── 5. Generate a sample HTML report ─────────────────────────────────
+      - name: Generate sample HTML report
+        run: |
+          python - <<'EOF'
+          from scanner.models import ScanResult, Finding, Severity
+          from scanner.reports.html_report import generate_html_report
+
+          result = ScanResult(
+              target="https://example.com",
+              scan_mode="passive",
+              endpoints_scanned=1,
+              findings=[
+                  Finding(
+                      title="Sample Finding",
+                      severity=Severity.LOW,
+                      endpoint="https://example.com",
+                      description="This is a sample finding for the release report.",
+                      recommendation="Review and remediate accordingly.",
+                      owasp="API1:2023",
+                  )
+              ],
+          )
+          generate_html_report(result, "release_report.html")
+          print("HTML report generated: release_report.html")
+          EOF
+
+      # ── 6. Generate a sample PDF report ──────────────────────────────────
+      - name: Generate sample PDF report
+        run: |
+          python - <<'EOF'
+          from scanner.models import ScanResult, Finding, Severity
+          from scanner.reports.pdf_report import generate_pdf_report
+
+          result = ScanResult(
+              target="https://example.com",
+              scan_mode="passive",
+              endpoints_scanned=1,
+              findings=[
+                  Finding(
+                      title="Sample Finding",
+                      severity=Severity.LOW,
+                      endpoint="https://example.com",
+                      description="This is a sample finding for the release report.",
+                      recommendation="Review and remediate accordingly.",
+                      owasp="API1:2023",
+                  )
+              ],
+          )
+          generate_pdf_report(result, "release_report.pdf")
+          print("PDF report generated: release_report.pdf")
+          EOF
+
+      # ── 7. Upload HTML report as release asset ────────────────────────────
+      - name: Upload HTML report to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_report.html
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 8. Upload PDF report as release asset ─────────────────────────────
+      - name: Upload PDF report to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_report.pdf
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

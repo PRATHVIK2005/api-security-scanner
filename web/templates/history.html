@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan History — API Guard</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+
+<body>
+
+<div class="background-grid"></div>
+<div class="cyber-glow cyber-glow-1"></div>
+<div class="cyber-glow cyber-glow-2"></div>
+
+<div class="container">
+
+    <!-- HEADER -->
+    <header class="hero">
+        <div class="logo">
+            <span class="logo-icon">◈</span>
+            <div>
+                <h1>API<span>GUARD</span></h1>
+                <p>OWASP API SECURITY SCANNER &amp; AUDITOR</p>
+            </div>
+        </div>
+
+        <nav class="nav-links">
+            <a href="/" class="nav-link"><span class="nav-icon">⌬</span> New Scan</a>
+            <a href="/history" class="nav-link active"><span class="nav-icon">📜</span> Scan History</a>
+        </nav>
+
+        <div class="system-status">
+            <span class="status-dot"></span>
+            <span class="status-text">DATABASE ONLINE</span>
+            <span class="status-version">{{ scans|length }} Records</span>
+        </div>
+    </header>
+
+    <!-- SECTION TITLE -->
+    <div class="history-hero-bar">
+        <div>
+            <span class="panel-label">AUDIT LOG ARCHIVE</span>
+            <h2>Security Scan History</h2>
+            <p class="history-subtitle">Persistent records of all authenticated and passive vulnerability assessments</p>
+        </div>
+
+        <div class="history-actions">
+            <a href="/" class="btn-cyber-outline">
+                <span class="btn-icon">＋</span> Run New Scan
+            </a>
+            <button id="compare-btn" class="btn-cyber-primary" disabled title="Select 2 scans below to compare">
+                <span class="btn-icon">⚖</span> Compare Selected (0/2)
+            </button>
+        </div>
+    </div>
+
+    {% if error %}
+    <div class="cyber-alert alert-error">
+        <span class="alert-icon">⚠️</span>
+        <div class="alert-content">
+            <h4>Comparison Error</h4>
+            <p>{{ error }}</p>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- COMPARISON NOTICE BAR -->
+    <div id="compare-tip" class="compare-tip-bar hidden">
+        <span class="tip-icon">💡</span>
+        <span id="compare-tip-text">Select 2 scans to compare historical security posture deltas.</span>
+        <a id="compare-execute-link" href="#" class="btn-inline-compare">Launch Comparison →</a>
+    </div>
+
+    <!-- SCANS TABLE -->
+    <div class="cyber-panel table-panel">
+        {% if scans and scans|length > 0 %}
+        <div class="table-container">
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th class="col-select" title="Select for comparison">Compare</th>
+                        <th class="col-id">Scan ID</th>
+                        <th class="col-target">Target URL</th>
+                        <th class="col-date">Date &amp; Time</th>
+                        <th class="col-score">Security Score</th>
+                        <th class="col-risk">Risk Level</th>
+                        <th class="col-mode">Mode</th>
+                        <th class="col-findings">Findings</th>
+                        <th class="col-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for scan in scans %}
+                    <tr class="history-row" data-id="{{ scan.id }}">
+                        <td class="col-select">
+                            <input
+                                type="checkbox"
+                                class="compare-checkbox"
+                                value="{{ scan.id }}"
+                                id="chk-{{ scan.id }}"
+                                aria-label="Select scan {{ scan.id }} for comparison"
+                            >
+                        </td>
+                        <td class="col-id">
+                            <span class="scan-id-tag">#{{ scan.id }}</span>
+                        </td>
+                        <td class="col-target">
+                            <a href="/history/{{ scan.id }}" class="target-url-link" title="View scan details">
+                                {{ scan.target_url }}
+                            </a>
+                        </td>
+                        <td class="col-date">
+                            <span class="date-stamp">{{ scan.scan_date.strftime('%Y-%m-%d') }}</span>
+                            <span class="time-stamp">{{ scan.scan_date.strftime('%H:%M:%S UTC') }}</span>
+                        </td>
+                        <td class="col-score">
+                            <span class="score-pill score-{{ scan.risk_level|lower }}">
+                                {{ "%.1f"|format(scan.security_score) }}
+                            </span>
+                        </td>
+                        <td class="col-risk">
+                            <span class="risk-badge risk-{{ scan.risk_level|lower }}">
+                                {{ scan.risk_level }}
+                            </span>
+                        </td>
+                        <td class="col-mode">
+                            <span class="mode-badge mode-{{ scan.scan_mode|lower }}">
+                                {{ scan.scan_mode|upper }}
+                            </span>
+                        </td>
+                        <td class="col-findings">
+                            <span class="findings-count-badge count-{{ 'zero' if scan.findings_count == 0 else scan.risk_level|lower }}">
+                                {{ scan.findings_count }}
+                            </span>
+                        </td>
+                        <td class="col-actions">
+                            <a href="/history/{{ scan.id }}" class="btn-table-action">
+                                Details ➔
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-history-state">
+            <div class="empty-icon">📂</div>
+            <h3>No Scan History Yet</h3>
+            <p>You haven't run any API security audits yet. Start your first scan to generate reports and track security posture over time.</p>
+            <a href="/" class="btn-cyber-primary" style="margin-top: 15px; display: inline-flex;">
+                Run Your First Scan ➔
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <p>API GUARD — Automated OWASP Security Intelligence &amp; Persistent Audit Trail</p>
+    </footer>
+
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const checkboxes = document.querySelectorAll(".compare-checkbox");
+    const compareBtn = document.getElementById("compare-btn");
+    const tipBar = document.getElementById("compare-tip");
+    const tipText = document.getElementById("compare-tip-text");
+    const executeLink = document.getElementById("compare-execute-link");
+
+    function updateComparisonState() {
+        const selected = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+
+        if (compareBtn) {
+            compareBtn.textContent = `⚖ Compare Selected (${selected.length}/2)`;
+            compareBtn.disabled = selected.length !== 2;
+        }
+
+        if (selected.length === 2) {
+            const url = `/compare?scan1=${selected[0]}&scan2=${selected[1]}`;
+            if (compareBtn) {
+                compareBtn.onclick = () => { window.location.href = url; };
+            }
+            if (executeLink) {
+                executeLink.href = url;
+            }
+            if (tipBar) {
+                tipBar.classList.remove("hidden");
+                tipText.textContent = `Ready to compare Scan #${selected[0]} vs Scan #${selected[1]}.`;
+            }
+        } else {
+            if (compareBtn) {
+                compareBtn.onclick = null;
+            }
+            if (tipBar) {
+                tipBar.classList.add("hidden");
+            }
+        }
+    }
+
+    checkboxes.forEach(cb => {
+        cb.addEventListener("change", (e) => {
+            const checkedCount = Array.from(checkboxes).filter(c => c.checked).length;
+            if (checkedCount > 2) {
+                e.target.checked = false;
+                alert("You can select up to 2 scans at a time for comparison.");
+                return;
+            }
+            updateComparisonState();
+        });
+    });
+});
+</script>
+
+</body>
+</html>

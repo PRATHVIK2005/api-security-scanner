@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compare Scans #{{ comparison.scan1.id }} vs #{{ comparison.scan2.id }} — API Guard</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+
+<body>
+
+<div class="background-grid"></div>
+<div class="cyber-glow cyber-glow-1"></div>
+<div class="cyber-glow cyber-glow-2"></div>
+
+<div class="container">
+
+    <!-- HEADER -->
+    <header class="hero">
+        <div class="logo">
+            <span class="logo-icon">◈</span>
+            <div>
+                <h1>API<span>GUARD</span></h1>
+                <p>OWASP API SECURITY SCANNER &amp; AUDITOR</p>
+            </div>
+        </div>
+
+        <nav class="nav-links">
+            <a href="/" class="nav-link"><span class="nav-icon">⌬</span> New Scan</a>
+            <a href="/history" class="nav-link"><span class="nav-icon">📜</span> Scan History</a>
+        </nav>
+
+        <div class="system-status">
+            <span class="status-dot"></span>
+            <span class="status-text">COMPARISON ENGINE</span>
+            <span class="status-version">#{{ comparison.scan1.id }} vs #{{ comparison.scan2.id }}</span>
+        </div>
+    </header>
+
+    <!-- BACK BAR -->
+    <div class="navigation-bar">
+        <a href="/history" class="btn-back-link">
+            ← Back to Scan History
+        </a>
+        <div class="nav-bar-actions">
+            <a href="/" class="btn-cyber-outline">
+                ＋ Run New Scan
+            </a>
+        </div>
+    </div>
+
+    <!-- POSTURE STATUS BANNER -->
+    <div class="comparison-status-banner status-{{ comparison.status|lower }}">
+        <div class="status-badge-icon">
+            {% if comparison.status == "IMPROVED" %}🛡️
+            {% elif comparison.status == "WORSENED" %}⚠️
+            {% else %}⚖
+            {% endif %}
+        </div>
+        <div class="status-banner-content">
+            <h3>POSTURE ASSESSMENT: {{ comparison.status }}</h3>
+            <p>{{ comparison.status_text }}</p>
+        </div>
+        <div class="status-score-delta">
+            <span class="delta-label">SCORE CHANGE</span>
+            <span class="delta-number delta-{{ 'positive' if comparison.score_diff > 0 else ('negative' if comparison.score_diff < 0 else 'zero') }}">
+                {{ "+" if comparison.score_diff > 0 else "" }}{{ comparison.score_diff }}
+            </span>
+        </div>
+    </div>
+
+    <!-- SIDE-BY-SIDE SCAN CARDS -->
+    <div class="comparison-grid">
+
+        <!-- SCAN 1 (BASELINE) -->
+        <div class="comparison-card cyber-panel">
+            <div class="comp-card-badge">BASELINE SCAN #{{ comparison.scan1.id }}</div>
+            <h3 class="comp-target-url">{{ comparison.scan1.target_url }}</h3>
+
+            <div class="comp-meta-list">
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Scan Date</span>
+                    <span class="comp-meta-val">{{ comparison.scan1.scan_date.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+                </div>
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Scan Mode</span>
+                    <span class="mode-badge mode-{{ comparison.scan1.scan_mode|lower }}">{{ comparison.scan1.scan_mode|upper }}</span>
+                </div>
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Security Score</span>
+                    <span class="score-pill score-{{ comparison.scan1.risk_level|lower }}">{{ "%.1f"|format(comparison.scan1.security_score) }} / 100</span>
+                </div>
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Risk Level</span>
+                    <span class="risk-badge risk-{{ comparison.scan1.risk_level|lower }}">{{ comparison.scan1.risk_level }}</span>
+                </div>
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Total Findings</span>
+                    <span class="comp-meta-val highlight-val">{{ comparison.scan1.findings_count }}</span>
+                </div>
+            </div>
+
+            <div class="comp-severity-breakdown">
+                <h4>Vulnerability Breakdown</h4>
+                <div class="comp-breakdown-row">
+                    <span class="sev-name sev-critical">CRITICAL</span>
+                    <span class="sev-val">{{ comparison.scan1_severity.get('CRITICAL', 0) }}</span>
+                </div>
+                <div class="comp-breakdown-row">
+                    <span class="sev-name sev-high">HIGH</span>
+                    <span class="sev-val">{{ comparison.scan1_severity.get('HIGH', 0) }}</span>
+                </div>
+                <div class="comp-breakdown-row">
+                    <span class="sev-name sev-medium">MEDIUM</span>
+                    <span class="sev-val">{{ comparison.scan1_severity.get('MEDIUM', 0) }}</span>
+                </div>
+                <div class="comp-breakdown-row">
+                    <span class="sev-name sev-low">LOW</span>
+                    <span class="sev-val">{{ comparison.scan1_severity.get('LOW', 0) }}</span>
+                </div>
+            </div>
+
+            <a href="/history/{{ comparison.scan1.id }}" class="btn-cyber-outline" style="width: 100%; text-align: center; margin-top: 20px;">
+                View Scan #{{ comparison.scan1.id }} Details ➔
+            </a>
+        </div>
+
+        <!-- DIFFERENCE DELTAS SUMMARY -->
+        <div class="comparison-delta-column cyber-panel">
+            <h3 class="delta-column-header">Metric Deltas</h3>
+            <p class="delta-column-sub">(Scan #{{ comparison.scan2.id }} vs Scan #{{ comparison.scan1.id }})</p>
+
+            <div class="delta-metric-box">
+                <span class="delta-metric-label">Security Score</span>
+                <span class="delta-metric-val delta-{{ 'positive' if comparison.score_diff > 0 else ('negative' if comparison.score_diff < 0 else 'zero') }}">
+                    {{ "+" if comparison.score_diff > 0 else "" }}{{ comparison.score_diff }}
+                </span>
+                <span class="delta-metric-sub">{% if comparison.score_diff > 0 %}Score Increased (Better){% elif comparison.score_diff < 0 %}Score Decreased (Worse){% else %}No Score Change{% endif %}</span>
+            </div>
+
+            <div class="delta-metric-box">
+                <span class="delta-metric-label">Total Findings</span>
+                <span class="delta-metric-val delta-{{ 'positive' if comparison.findings_diff < 0 else ('negative' if comparison.findings_diff > 0 else 'zero') }}">
+                    {{ "+" if comparison.findings_diff > 0 else "" }}{{ comparison.findings_diff }}
+                </span>
+                <span class="delta-metric-sub">{% if comparison.findings_diff < 0 %}Fewer Flaws (Better){% elif comparison.findings_diff > 0 %}More Flaws (Worse){% else %}Same Number{% endif %}</span>
+            </div>
+
+            <div class="delta-metric-box">
+                <span class="delta-metric-label">HIGH Findings Diff</span>
+                {% set high_diff = comparison.severity_diff.get('HIGH', 0) %}
+                <span class="delta-metric-val delta-{{ 'positive' if high_diff < 0 else ('negative' if high_diff > 0 else 'zero') }}">
+                    {{ "+" if high_diff > 0 else "" }}{{ high_diff }}
+                </span>
+            </div>
+
+            <div class="delta-metric-box">
+                <span class="delta-metric-label">MEDIUM Findings Diff</span>
+                {% set med_diff = comparison.severity_diff.get('MEDIUM', 0) %}
+                <span class="delta-metric-val delta-{{ 'positive' if med_diff < 0 else ('negative' if med_diff > 0 else 'zero') }}">
+                    {{ "+" if med_diff > 0 else "" }}{{ med_diff }}
+                </span>
+            </div>
+
+            <div class="delta-metric-box">
+                <span class="delta-metric-label">LOW Findings Diff</span>
+                {% set low_diff = comparison.severity_diff.get('LOW', 0) %}
+                <span class="delta-metric-val delta-{{ 'positive' if low_diff < 0 else ('negative' if low_diff > 0 else 'zero') }}">
+                    {{ "+" if low_diff > 0 else "" }}{{ low_diff }}
+                </span>
+            </div>
+        </div>
+
+        <!-- SCAN 2 (COMPARED) -->
+        <div class="comparison-card cyber-panel">
+            <div class="comp-card-badge">COMPARED SCAN #{{ comparison.scan2.id }}</div>
+            <h3 class="comp-target-url">{{ comparison.scan2.target_url }}</h3>
+
+            <div class="comp-meta-list">
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Scan Date</span>
+                    <span class="comp-meta-val">{{ comparison.scan2.scan_date.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+                </div>
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Scan Mode</span>
+                    <span class="mode-badge mode-{{ comparison.scan2.scan_mode|lower }}">{{ comparison.scan2.scan_mode|upper }}</span>
+                </div>
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Security Score</span>
+                    <span class="score-pill score-{{ comparison.scan2.risk_level|lower }}">{{ "%.1f"|format(comparison.scan2.security_score) }} / 100</span>
+                </div>
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Risk Level</span>
+                    <span class="risk-badge risk-{{ comparison.scan2.risk_level|lower }}">{{ comparison.scan2.risk_level }}</span>
+                </div>
+                <div class="comp-meta-row">
+                    <span class="comp-meta-label">Total Findings</span>
+                    <span class="comp-meta-val highlight-val">{{ comparison.scan2.findings_count }}</span>
+                </div>
+            </div>
+
+            <div class="comp-severity-breakdown">
+                <h4>Vulnerability Breakdown</h4>
+                <div class="comp-breakdown-row">
+                    <span class="sev-name sev-critical">CRITICAL</span>
+                    <span class="sev-val">{{ comparison.scan2_severity.get('CRITICAL', 0) }}</span>
+                </div>
+                <div class="comp-breakdown-row">
+                    <span class="sev-name sev-high">HIGH</span>
+                    <span class="sev-val">{{ comparison.scan2_severity.get('HIGH', 0) }}</span>
+                </div>
+                <div class="comp-breakdown-row">
+                    <span class="sev-name sev-medium">MEDIUM</span>
+                    <span class="sev-val">{{ comparison.scan2_severity.get('MEDIUM', 0) }}</span>
+                </div>
+                <div class="comp-breakdown-row">
+                    <span class="sev-name sev-low">LOW</span>
+                    <span class="sev-val">{{ comparison.scan2_severity.get('LOW', 0) }}</span>
+                </div>
+            </div>
+
+            <a href="/history/{{ comparison.scan2.id }}" class="btn-cyber-outline" style="width: 100%; text-align: center; margin-top: 20px;">
+                View Scan #{{ comparison.scan2.id }} Details ➔
+            </a>
+        </div>
+
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <p>API GUARD — Automated OWASP Security Intelligence &amp; Persistent Audit Trail</p>
+    </footer>
+
+</div>
+
+</body>
+</html>

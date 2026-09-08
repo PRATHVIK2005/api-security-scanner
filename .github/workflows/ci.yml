@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  release:
+    types: [created]
+  schedule:
+    # Nightly build at 02:00 UTC
+    - cron: "0 2 * * *"
+
+jobs:
+  ci:
+    name: "Python ${{ matrix.python-version }} — Test, Lint & Audit"
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ─────────────────────────────────────────────────
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      # ── 3. Install dependencies ───────────────────────────────────────────
+      - name: Install project and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # ── 4. Validate FastAPI application import ────────────────────────────
+      - name: Validate FastAPI application import
+        run: |
+          python -c "
+          import sys
+          try:
+              from web.app import app
+              print(f'FastAPI app imported successfully: {app.title}')
+              assert app.title == 'API Security Scanner', f'Unexpected title: {app.title}'
+              print('FastAPI application validation PASSED')
+          except Exception as e:
+              print(f'FastAPI application validation FAILED: {e}', file=sys.stderr)
+              sys.exit(1)
+          "
+
+      # ── 5. Lint with Ruff ─────────────────────────────────────────────────
+      - name: Run Ruff linter
+        run: |
+          ruff check . --output-format=github
+
+      # ── 6. Run tests with coverage ────────────────────────────────────────
+      - name: Run pytest with coverage
+        run: |
+          python -m pytest \
+            --cov=scanner \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            -v
+
+      # ── 7. Upload coverage report (optional artefact) ─────────────────────
+      - name: Upload coverage XML
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14
+
+      # ── 8. Dependency security audit ──────────────────────────────────────
+      - name: Run pip-audit security check
+        run: |
+          pip-audit --progress-spinner=off

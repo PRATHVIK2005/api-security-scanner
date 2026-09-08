@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "api-security-scanner"
+version = "0.1.0"
+description = "OWASP API Security Scanner for Developers"
+requires-python = ">=3.10"
+
+dependencies = [
+    "typer",
+    "rich",
+    "httpx",
+    "pydantic",
+    "sqlalchemy",
+    "reportlab",
+    "fastapi[standard]",
+    "jinja2",
+    "python-multipart",
+    "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "pip-audit",
+    "httpx",
+]
+
+[project.scripts]
+api-scanner = "cli.main:app"
+
+[tool.setuptools.packages.find]
+include = ["scanner*", "cli*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+filterwarnings = [
+    # httpx → httpx2 migration: custom StarletteDeprecationWarning (message-based, works across versions)
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:Warning",
+    # anyio.abc.BlockingPortal alias deprecation inside starlette.testclient
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+# Only flag real errors and security issues — not style pedantry.
+# E = pycodestyle errors, F = pyflakes, W = pycodestyle warnings
+select = ["E", "F", "W"]
+ignore = [
+    "E501",   # line too long  (handled by formatter, not linter)
+    "E711",   # comparison to None (common pattern)
+    "E712",   # comparison to True/False (common pattern)
+    "F401",   # unused imports  (existing code may have them)
+    "F841",   # local variable assigned but unused (existing code pattern)
+    "W291",   # trailing whitespace
+    "W292",   # no newline at end of file (common on Windows / CRLF files)
+    "W293",   # whitespace before punctuation
+]
+
+[tool.coverage.run]
+source = ["scanner"]
+omit = ["scanner/db/migrations/*", "*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

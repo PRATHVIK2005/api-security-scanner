@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan #{{ scan.id }} Details — API Guard</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+
+<body>
+
+<div class="background-grid"></div>
+<div class="cyber-glow cyber-glow-1"></div>
+<div class="cyber-glow cyber-glow-2"></div>
+
+<div class="container">
+
+    <!-- HEADER -->
+    <header class="hero">
+        <div class="logo">
+            <span class="logo-icon">◈</span>
+            <div>
+                <h1>API<span>GUARD</span></h1>
+                <p>OWASP API SECURITY SCANNER &amp; AUDITOR</p>
+            </div>
+        </div>
+
+        <nav class="nav-links">
+            <a href="/" class="nav-link"><span class="nav-icon">⌬</span> New Scan</a>
+            <a href="/history" class="nav-link"><span class="nav-icon">📜</span> Scan History</a>
+        </nav>
+
+        <div class="system-status">
+            <span class="status-dot"></span>
+            <span class="status-text">ARCHIVE RECORD #{{ scan.id }}</span>
+            <span class="status-version">{{ scan.risk_level }}</span>
+        </div>
+    </header>
+
+    <!-- BACK BAR -->
+    <div class="navigation-bar">
+        <a href="/history" class="btn-back-link">
+            ← Back to Scan History
+        </a>
+        <div class="nav-bar-actions">
+            <a href="/history/{{ scan.id }}/export/pdf" class="btn-cyber-outline" target="_blank" title="Download detailed PDF security report">
+                📄 Export PDF
+            </a>
+            <a href="/history/{{ scan.id }}/export/html" class="btn-cyber-outline" target="_blank" title="Download standalone HTML security report">
+                🌐 Export HTML
+            </a>
+            <a href="/history/{{ scan.id }}/export/json" class="btn-cyber-outline" target="_blank" title="Download raw JSON report">
+                📦 Export JSON
+            </a>
+            <a href="/" class="btn-cyber-outline">
+                ＋ Run New Scan
+            </a>
+        </div>
+    </div>
+
+    <!-- SCAN METADATA OVERVIEW -->
+    <div class="scan-details-header cyber-panel">
+        <div class="details-main-info">
+            <div class="details-badge-group">
+                <span class="scan-id-large">SCAN RECORD #{{ scan.id }}</span>
+                <span class="mode-badge mode-{{ scan.scan_mode|lower }}">{{ scan.scan_mode|upper }} MODE</span>
+                <span class="risk-badge risk-{{ scan.risk_level|lower }}">{{ scan.risk_level }} RISK</span>
+            </div>
+
+            <h2 class="details-target-url">{{ scan.target_url }}</h2>
+
+            <div class="details-meta-grid">
+                <div class="meta-item">
+                    <span class="meta-label">TIMESTAMP</span>
+                    <span class="meta-val">{{ scan.scan_date.strftime('%Y-%m-%d %H:%M:%S UTC') }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">TOTAL FINDINGS</span>
+                    <span class="meta-val highlight-val">{{ scan.findings_count }} Detected</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">SCAN MODE</span>
+                    <span class="meta-val">{{ scan.scan_mode|capitalize }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">SECURITY SCORE</span>
+                    <span class="meta-val score-val-{{ scan.risk_level|lower }}">{{ "%.1f"|format(scan.security_score) }} / 100</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- SCORE GAUGE MINI -->
+        <div class="details-score-box">
+            <div class="gauge-container gauge-mini gauge-{{ 'good' if scan.security_score >= 80 else ('moderate' if scan.security_score >= 60 else ('warning' if scan.security_score >= 40 else 'critical')) }}">
+                <svg class="gauge-svg" viewBox="0 0 200 200">
+                    <defs>
+                        <linearGradient id="gaugeGradientGood" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#00e676" />
+                            <stop offset="100%" stop-color="#00e5ff" />
+                        </linearGradient>
+                        <linearGradient id="gaugeGradientModerate" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#ffd600" />
+                            <stop offset="100%" stop-color="#00e5ff" />
+                        </linearGradient>
+                        <linearGradient id="gaugeGradientWarning" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#ff6d00" />
+                            <stop offset="100%" stop-color="#ffd600" />
+                        </linearGradient>
+                        <linearGradient id="gaugeGradientCritical" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#ff1744" />
+                            <stop offset="100%" stop-color="#ff6d00" />
+                        </linearGradient>
+                    </defs>
+                    <circle class="gauge-bg-track" cx="100" cy="100" r="80" />
+                    {% set circumference = 502.65 %}
+                    {% set dashoffset = circumference - (circumference * scan.security_score / 100) %}
+                    <circle
+                        class="gauge-progress-arc"
+                        cx="100"
+                        cy="100"
+                        r="80"
+                        stroke-dasharray="{{ circumference }}"
+                        stroke-dashoffset="{{ dashoffset }}"
+                    />
+                </svg>
+                <div class="gauge-center-content">
+                    <div class="gauge-score-val">{{ "%.1f"|format(scan.security_score) }}</div>
+                    <div class="gauge-max">/ 100</div>
+                </div>
+            </div>
+            <div class="gauge-mini-label">Security Posture Score</div>
+        </div>
+    </div>
+
+    <!-- SEVERITY BREAKDOWN CARDS -->
+    <div class="severity-cards-grid">
+        {% set crit_count = scan.findings|selectattr('severity', 'equalto', 'CRITICAL')|list|length %}
+        {% set high_count = scan.findings|selectattr('severity', 'equalto', 'HIGH')|list|length %}
+        {% set med_count = scan.findings|selectattr('severity', 'equalto', 'MEDIUM')|list|length %}
+        {% set low_count = scan.findings|selectattr('severity', 'equalto', 'LOW')|list|length %}
+
+        <div class="severity-card card-critical">
+            <div class="card-icon">🚨</div>
+            <div class="card-count">{{ crit_count }}</div>
+            <div class="card-label">CRITICAL</div>
+        </div>
+
+        <div class="severity-card card-high">
+            <div class="card-icon">⚠️</div>
+            <div class="card-count">{{ high_count }}</div>
+            <div class="card-label">HIGH</div>
+        </div>
+
+        <div class="severity-card card-medium">
+            <div class="card-icon">⚡</div>
+            <div class="card-count">{{ med_count }}</div>
+            <div class="card-label">MEDIUM</div>
+        </div>
+
+        <div class="severity-card card-low">
+            <div class="card-icon">ℹ️</div>
+            <div class="card-count">{{ low_count }}</div>
+            <div class="card-label">LOW</div>
+        </div>
+    </div>
+
+    <!-- FINDINGS SECTION -->
+    <div class="section-title" style="margin-top: 35px;">
+        <div>
+            <span class="section-label">RECORDED VULNERABILITIES</span>
+            <h2>Security Findings ({{ scan.findings|length }})</h2>
+        </div>
+    </div>
+
+    {% if scan.findings and scan.findings|length > 0 %}
+    <div class="findings-list">
+        {% for finding in scan.findings %}
+        <div class="finding-detail-card border-{{ finding.severity|lower }}">
+            <div class="finding-card-header">
+                <div class="finding-badges">
+                    <span class="severity-tag sev-{{ finding.severity|lower }}">{{ finding.severity }}</span>
+                    <span class="method-tag method-{{ finding.method|lower }}">{{ finding.method }}</span>
+                    {% if finding.owasp %}
+                    <span class="owasp-tag">{{ finding.owasp }}</span>
+                    {% endif %}
+                </div>
+                <span class="finding-num">Finding #{{ loop.index }}</span>
+            </div>
+
+            <h3 class="finding-title">{{ finding.title }}</h3>
+
+            <div class="finding-endpoint-box">
+                <span class="endpoint-label">AFFECTED ENDPOINT:</span>
+                <code class="endpoint-url">{{ finding.endpoint }}</code>
+            </div>
+
+            {% if finding.description %}
+            <div class="finding-section-block">
+                <h4>VULNERABILITY DESCRIPTION</h4>
+                <p>{{ finding.description }}</p>
+            </div>
+            {% endif %}
+
+            {% if finding.recommendation %}
+            <div class="finding-section-block recommendation-block">
+                <h4>ACTIONABLE RECOMMENDATION &amp; REMEDIATION</h4>
+                <p>{{ finding.recommendation }}</p>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="cyber-panel empty-findings-box">
+        <div class="clean-icon">🛡️</div>
+        <h3>Zero Vulnerabilities Detected</h3>
+        <p>No security flaws were recorded for this audit. Target API adheres to all evaluated OWASP checks.</p>
+    </div>
+    {% endif %}
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <p>API GUARD — Automated OWASP Security Intelligence &amp; Persistent Audit Trail</p>
+    </footer>
+
+</div>
+
+</body>
+</html>
