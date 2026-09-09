@@ -4,6 +4,9 @@ on:
   release:
     types: [created]
 
+permissions:
+  contents: write
+
 jobs:
   build-release-assets:
     name: Build & Upload Release Assets
@@ -22,49 +25,27 @@ jobs:
           cache: "pip"
 
       # ── 3. Install dependencies ───────────────────────────────────────────
-      - name: Install project and dev dependencies
+      - name: Install project and development dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install -e ".[dev]"
 
       # ── 4. Run full test suite ────────────────────────────────────────────
-      - name: Run pytest (sanity check before release)
+      - name: Run pytest before release
         run: |
           python -m pytest -q
 
-      # ── 5. Generate a sample HTML report ─────────────────────────────────
-      - name: Generate sample HTML report
+      # ── 5. Generate release reports ───────────────────────────────────────
+      - name: Generate sample release reports
         run: |
           python - <<'EOF'
+          from pathlib import Path
+
           from scanner.models import ScanResult, Finding, Severity
           from scanner.reports.html_report import generate_html_report
-
-          result = ScanResult(
-              target="https://example.com",
-              scan_mode="passive",
-              endpoints_scanned=1,
-              findings=[
-                  Finding(
-                      title="Sample Finding",
-                      severity=Severity.LOW,
-                      endpoint="https://example.com",
-                      description="This is a sample finding for the release report.",
-                      recommendation="Review and remediate accordingly.",
-                      owasp="API1:2023",
-                  )
-              ],
-          )
-          generate_html_report(result, "release_report.html")
-          print("HTML report generated: release_report.html")
-          EOF
-
-      # ── 6. Generate a sample PDF report ──────────────────────────────────
-      - name: Generate sample PDF report
-        run: |
-          python - <<'EOF'
-          from scanner.models import ScanResult, Finding, Severity
           from scanner.reports.pdf_report import generate_pdf_report
 
+
           result = ScanResult(
               target="https://example.com",
               scan_mode="passive",
@@ -74,28 +55,47 @@ jobs:
                       title="Sample Finding",
                       severity=Severity.LOW,
                       endpoint="https://example.com",
-                      description="This is a sample finding for the release report.",
-                      recommendation="Review and remediate accordingly.",
+                      description=(
+                          "This is a sample finding "
+                          "for the release report."
+                      ),
+                      recommendation=(
+                          "Review and remediate accordingly."
+                      ),
                       owasp="API1:2023",
                   )
               ],
           )
-          generate_pdf_report(result, "release_report.pdf")
-          print("PDF report generated: release_report.pdf")
+
+
+          html_content = generate_html_report(result)
+          Path("release_report.html").write_text(
+              html_content,
+              encoding="utf-8",
+          )
+
+
+          pdf_bytes = generate_pdf_report(result)
+          Path("release_report.pdf").write_bytes(
+              pdf_bytes,
+          )
+
+
+          print("HTML report generated successfully")
+          print("PDF report generated successfully")
           EOF
 
-      # ── 7. Upload HTML report as release asset ────────────────────────────
-      - name: Upload HTML report to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release_report.html
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # ── 6. Verify generated assets ────────────────────────────────────────
+      - name: Verify release assets
+        run: |
+          ls -lh release_report.html release_report.pdf
 
-      # ── 8. Upload PDF report as release asset ─────────────────────────────
-      - name: Upload PDF report to GitHub Release
+      # ── 7. Upload release assets ──────────────────────────────────────────
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: release_report.pdf
+          files: |
+            release_report.html
+            release_report.pdf
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
