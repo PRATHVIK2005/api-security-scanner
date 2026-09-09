@@ -135,12 +135,21 @@ def run_scan(
             context={
                 "selected_url": url,
                 "selected_mode": mode,
-                "error": f"Invalid scan mode '{mode}'. Use 'passive' or 'active'.",
+                "error": (
+                    f"Invalid scan mode '{mode}'. "
+                    "Use 'passive' or 'active'."
+                ),
             },
         )
 
-    clean_token = token.strip() if token and token.strip() else None
-    # Security: track only whether a token was supplied, never echo it back.
+    clean_token = (
+        token.strip()
+        if token and token.strip()
+        else None
+    )
+
+    # Security: track only whether a token was supplied.
+    # Never echo the raw token back to the user.
     token_provided = clean_token is not None
 
     try:
@@ -149,33 +158,41 @@ def run_scan(
             mode=scan_mode,
             token=clean_token,
         )
-    except Exception:
-    logger.exception(
-        "Scan failed for target: %s",
-        url,
-    )
 
-    return templates.TemplateResponse(
-        request=request,
-        name="index.html",
-        context={
-            "selected_url": url,
-            "selected_mode": mode,
-            "error": (
-                "The scan could not be completed. "
-                "Please verify the target and try again."
-            ),
-        },
-        status_code=500,
-    )
+    except Exception:
+        logger.exception(
+            "Scan failed for target: %s",
+            url,
+        )
+
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "selected_url": url,
+                "selected_mode": mode,
+                "error": (
+                    "The scan could not be completed. "
+                    "Please verify the target and try again."
+                ),
+            },
+            status_code=500,
+        )
 
     # Persist scan result to SQLite history
     saved_scan_id = None
+
     try:
-        saved_scan = save_scan(result, mode=scan_mode.value)
+        saved_scan = save_scan(
+            result,
+            mode=scan_mode.value,
+        )
         saved_scan_id = saved_scan.id
-    except Exception as e:
-        logger.error(f"Database error while saving scan: {e}")
+
+    except Exception:
+        logger.exception(
+            "Database error while saving scan result"
+        )
 
     return templates.TemplateResponse(
         request=request,
@@ -184,7 +201,7 @@ def run_scan(
             "result": result,
             "selected_url": url,
             "selected_mode": mode,
-            # Never pass the raw token back — only a safe boolean flag.
+            # Never pass the raw token back.
             "token_provided": token_provided,
             "saved_scan_id": saved_scan_id,
         },
