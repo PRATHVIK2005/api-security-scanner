@@ -78,3 +78,7 @@ report.pdf
 .env
 .env.*
 !.env.example
+
+# Generated release assets
+release_report.html
+release_report.pdf

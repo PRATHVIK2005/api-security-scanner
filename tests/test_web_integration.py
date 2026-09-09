@@ -20,7 +20,9 @@ def isolated_db():
     Base.metadata.create_all(bind=test_engine)
     set_custom_engine(test_engine)
     yield test_engine
+
     Base.metadata.drop_all(bind=test_engine)
+    test_engine.dispose()
 
 
 @pytest.fixture

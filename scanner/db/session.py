@@ -68,13 +68,24 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def set_custom_engine(engine) -> None:
-    """Set custom engine and session maker (primarily for testing)."""
+    """Set a custom engine and session maker, primarily for testing."""
     global _engine, _SessionLocal
+
+    previous_engine = _engine
+
     _engine = engine
+
     _SessionLocal = sessionmaker(
         autocommit=False,
         autoflush=False,
         bind=engine,
         expire_on_commit=False,
     )
+
     Base.metadata.create_all(bind=engine)
+
+    if (
+        previous_engine is not None
+        and previous_engine is not engine
+    ):
+        previous_engine.dispose()

@@ -93,11 +93,9 @@ This allows security testing of protected API endpoints.
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/api-security-scanner.git
+git clone https://github.com/PRATHVIK2005/api-security-scanner.git
 cd api-security-scanner
 ```
-
-Replace `YOUR_USERNAME` with your GitHub username.
 
 ---
 

@@ -78,8 +78,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Also ensure DB is initialized at import time
-init_db()
+
 
 app.mount(
     "/static",
@@ -150,18 +149,25 @@ def run_scan(
             mode=scan_mode,
             token=clean_token,
         )
-    except Exception as e:
-        logger.exception("Scan failed for target: %s", url)
-        return templates.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={
-                "selected_url": url,
-                "selected_mode": mode,
-                "error": f"The scan could not be completed: {e}",
-            },
-            status_code=500,
-        )
+    except Exception:
+    logger.exception(
+        "Scan failed for target: %s",
+        url,
+    )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "selected_url": url,
+            "selected_mode": mode,
+            "error": (
+                "The scan could not be completed. "
+                "Please verify the target and try again."
+            ),
+        },
+        status_code=500,
+    )
 
     # Persist scan result to SQLite history
     saved_scan_id = None

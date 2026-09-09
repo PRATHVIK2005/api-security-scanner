@@ -1,9 +1,19 @@
 from unittest.mock import patch
+import re
+
 import pytest
 from typer.testing import CliRunner
 
 from cli.main import app
 from scanner.models import Finding, ScanResult, Severity
+
+ANSI_ESCAPE = re.compile(
+    r"\x1b\[[0-9;]*m"
+)
+
+
+def strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE.sub("", text)
 
 runner = CliRunner()
 
@@ -18,11 +28,15 @@ def test_cli_help():
 
 def test_cli_scan_help():
     result = runner.invoke(app, ["scan", "--help"])
+
     assert result.exit_code == 0
-    assert "--url" in result.stdout
-    assert "--mode" in result.stdout
-    assert "--token" in result.stdout
-    assert "--format" in result.stdout
+
+    output = strip_ansi(result.stdout)
+
+    assert "--url" in output
+    assert "--mode" in output
+    assert "--token" in output
+    assert "--format" in output
 
 
 def test_cli_scan_invalid_url():
