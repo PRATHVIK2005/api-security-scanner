@@ -78,8 +78,27 @@ def test_enrich_findings_preserves_existing_data():
     assert enriched[0].recommendation == "Custom recommendation that should not be overwritten"
 
 
-def test_web_scan_does_not_leak_bearer_token():
-    client = TestClient(app, client=("127.0.0.1", 50003), headers={"Origin": "http://testserver"})
+def _authenticated_client(monkeypatch, address):
+    import re
+
+    from web.app import _login_attempts
+
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_USERNAME", "scan-test")
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_PASSWORD", "scan-test-password")
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_SESSION_SECRET", "test-session-secret-for-dashboard-1234567890")
+    _login_attempts.clear()
+    client = TestClient(
+        app, client=("127.0.0.1", address), headers={"Origin": "http://testserver"}, follow_redirects=False
+    )
+    login_page = client.get("/login")
+    csrf = re.search(r"name='csrf_token' value='([^']+)'", login_page.text).group(1)
+    client.post("/login", data={"username": "scan-test", "password": "scan-test-password", "csrf_token": csrf})
+    client.headers["x-csrf-token"] = re.search(r'name="csrf_token" value="([^"]+)"', client.get("/").text).group(1)
+    return client
+
+
+def test_web_scan_does_not_leak_bearer_token(monkeypatch):
+    client = _authenticated_client(monkeypatch, 50003)
     with patch("web.app.scan") as mock_scan:
         from scanner.models import ScanResult
 
@@ -106,8 +125,8 @@ def test_web_scan_does_not_leak_bearer_token():
         assert "AUTH: BEARER TOKEN ACTIVE" in response.text
 
 
-def test_web_scan_url_scheme_validation():
-    client = TestClient(app, client=("127.0.0.1", 50004), headers={"Origin": "http://testserver"})
+def test_web_scan_url_scheme_validation(monkeypatch):
+    client = _authenticated_client(monkeypatch, 50004)
     response = client.post(
         "/scan",
         data={

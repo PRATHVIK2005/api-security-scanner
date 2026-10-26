@@ -19,7 +19,7 @@ from scanner.checks.sensitive_data import check_sensitive_data
 from scanner.checks.ssrf import check_ssrf
 from scanner.checks.token_security import check_token_security
 from scanner.checks.unsafe_api_consumption import check_unsafe_api_consumption
-from scanner.bola_verification import load_bola_config, verify_bola
+from scanner.bola_verification import load_bola_config, verify_bola_cases
 from scanner.deduplication import deduplicate_findings
 from scanner.discovery import discover_endpoints
 from scanner.knowledge import get_finding_knowledge
@@ -316,7 +316,7 @@ def scan(
             break
 
     if bola_config is not None:
-        findings.append(verify_bola(client, url, bola_config))
+        findings.extend(verify_bola_cases(client, url, bola_config))
 
     transport = getattr(scanner_client, "_scanner_transport", None)
     if transport is not None:

@@ -21,8 +21,10 @@ from scanner.transport import (
 class _Handler(http.server.BaseHTTPRequestHandler):
     body = b"ok"
     delay = 0.0
+    client_ports = []
 
     def do_GET(self):
+        self.client_ports.append(self.client_address[1])
         if self.delay:
             time.sleep(self.delay)
         self.send_response(200)
@@ -63,6 +65,16 @@ def test_non_global_destinations_are_blocked_without_explicit_scope(address):
     assert not _is_allowed(ip, [])
 
 
+@pytest.mark.parametrize("address", ["fc00::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "64:ff9b::7f00:1"])
+def test_ipv6_private_link_local_and_mapped_private_addresses_are_blocked(address):
+    assert not _is_allowed(_normalized_ip(address), [])
+
+
+def test_global_ipv6_destination_is_allowed():
+    assert _is_allowed(_normalized_ip("2606:4700:4700::1111"), [])
+    assert _is_allowed(_normalized_ip("::ffff:8.8.8.8"), [])
+
+
 def test_wide_private_cidr_configuration_is_rejected(monkeypatch):
     monkeypatch.setenv("API_SCANNER_ALLOWED_CIDRS", "10.0.0.0/8")
     with pytest.raises(TargetScopeError, match="too broad"):
@@ -81,6 +93,15 @@ def test_mixed_public_and_private_dns_answers_fail_closed(monkeypatch):
         with httpx.Client(transport=PeerCheckedTransport()) as client:
             with pytest.raises(TargetScopeError, match="blocked"):
                 client.get("http://mixed.example/")
+
+
+def test_malformed_resolver_records_fail_as_structured_scope_error(monkeypatch):
+    with (
+        patch("scanner.transport.socket.getaddrinfo", return_value=[("malformed",)]),
+        httpx.Client(transport=PeerCheckedTransport()) as client,
+    ):
+        with pytest.raises(TargetScopeError, match="malformed"):
+            client.get("http://malformed.example/")
 
 
 def test_alternate_integer_ip_that_resolves_to_loopback_is_blocked(monkeypatch):
@@ -158,6 +179,49 @@ def test_new_request_revalidates_changed_dns_answer(monkeypatch, local_http_serv
     assert resolve.call_count == 2
 
 
+def test_each_request_uses_a_new_connection(monkeypatch, local_http_server):
+    monkeypatch.setenv("API_SCANNER_ALLOWED_CIDRS", "127.0.0.1/32")
+    _Handler.client_ports.clear()
+    from scanner.transport import create_scanner_client
+
+    with create_scanner_client() as client:
+        assert client.get(local_http_server).status_code == 200
+        assert client.get(local_http_server).status_code == 200
+    assert len(_Handler.client_ports) == 2
+    assert _Handler.client_ports[0] != _Handler.client_ports[1]
+
+
+def test_redirect_is_returned_without_following_private_location(monkeypatch):
+    monkeypatch.setenv("API_SCANNER_ALLOWED_CIDRS", "127.0.0.1/32")
+    requests_seen = []
+
+    class RedirectHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            requests_seen.append(self.path)
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:1/private")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    from scanner.transport import create_scanner_client
+
+    try:
+        with create_scanner_client() as client:
+            response = client.get(f"http://127.0.0.1:{server.server_port}/redirect")
+        assert response.status_code == 302
+        assert requests_seen == ["/redirect"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
 def test_scanner_client_attaches_the_transport_instance_used_for_accounting():
     from scanner.transport import create_scanner_client
 
@@ -184,3 +248,95 @@ def test_request_count_limit_is_enforced_per_scanner_client(monkeypatch, local_h
         with pytest.raises(ScannerResourceError, match="request-count limit"):
             client.get(local_http_server)
     assert "ScannerResourceError" in client._scanner_transport.failures
+
+
+def test_hanging_resolver_has_deadline_and_keeps_capacity_bounded(monkeypatch):
+    import threading
+    from scanner.transport import _DNS_CAPACITY, _resolve
+
+    release = threading.Event()
+    monkeypatch.setattr("scanner.transport.socket.getaddrinfo", lambda *_args: (release.wait(2), [])[1])
+    limits = TransportLimits(dns_seconds=0.03, total_seconds=0.1)
+    request = httpx.Request("GET", "https://stalled.example/")
+    start = time.monotonic()
+    with pytest.raises(ScannerResourceError, match="DNS resolution"):
+        _resolve("stalled.example", 443, start + 0.1, limits, request)
+    # Work remains occupied until the OS call returns; timeout cannot free slots
+    # and permit unbounded abandoned requests.
+    assert _DNS_CAPACITY._value <= 7
+    release.set()
+
+
+def test_resolver_capacity_exhaustion_fails_without_submission(monkeypatch):
+    from scanner.transport import _resolve
+
+    class NoCapacity:
+        def acquire(self, timeout=None):
+            return False
+
+    monkeypatch.setattr("scanner.transport._DNS_CAPACITY", NoCapacity())
+    with pytest.raises(ScannerResourceError, match="capacity"):
+        _resolve(
+            "stalled.example",
+            443,
+            time.monotonic() + 1,
+            TransportLimits(dns_seconds=0.01),
+            httpx.Request("GET", "https://stalled.example/"),
+        )
+
+
+def test_repeated_resolver_timeouts_remain_bounded_and_release_on_completion(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from scanner.transport import _resolve
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    capacity = threading.BoundedSemaphore(2)
+    release = threading.Event()
+    started = threading.Event()
+
+    def hanging_resolver(*_args):
+        started.set()
+        release.wait(1)
+        return []
+
+    monkeypatch.setattr("scanner.transport._DNS_POOL", pool)
+    monkeypatch.setattr("scanner.transport._DNS_CAPACITY", capacity)
+    monkeypatch.setattr("scanner.transport.socket.getaddrinfo", hanging_resolver)
+    limits = TransportLimits(dns_seconds=0.01, total_seconds=0.05)
+    try:
+        for _ in range(2):
+            with pytest.raises(ScannerResourceError):
+                _resolve(
+                    "stalled.example",
+                    443,
+                    time.monotonic() + 0.05,
+                    limits,
+                    httpx.Request("GET", "https://stalled.example/"),
+                )
+        assert started.is_set()
+        assert capacity._value == 0
+        with pytest.raises(ScannerResourceError, match="capacity"):
+            _resolve(
+                "stalled.example",
+                443,
+                time.monotonic() + 0.05,
+                limits,
+                httpx.Request("GET", "https://stalled.example/"),
+            )
+        release.set()
+        deadline = time.monotonic() + 1
+        while capacity._value != 2 and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert capacity._value == 2
+    finally:
+        release.set()
+        pool.shutdown(wait=True)
+
+
+def test_expired_worker_deadline_cannot_start_dns_resolution():
+    transport = PeerCheckedTransport()
+    request = httpx.Request("GET", "https://changed.example/")
+    with patch("scanner.transport._resolve") as resolve:
+        with pytest.raises(ScannerResourceError, match="request time limit"):
+            transport._perform_request(request, time.monotonic() - 1)
+    resolve.assert_not_called()

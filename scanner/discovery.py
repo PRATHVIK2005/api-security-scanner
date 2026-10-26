@@ -1,6 +1,8 @@
 """Bounded endpoint discovery from OpenAPI documents or explicit endpoint lists."""
 
 import json
+import copy
+import os
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -21,6 +23,8 @@ OPENAPI_PATHS = (
 VALID_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 MAX_SPEC_BYTES = 2_000_000
 MAX_ENDPOINTS = 500
+MAX_REF_COUNT = 2_000
+MAX_REF_DEPTH = 32
 
 
 def _same_origin(left: str, right: str) -> bool:
@@ -200,6 +204,71 @@ def _reference_inventory(document: dict) -> tuple[int, int]:
     return total, external
 
 
+def _resolve_local_references(document: dict) -> tuple[dict, int, int]:
+    """Resolve bounded local JSON Pointers. External and invalid refs remain visible."""
+    max_refs = int(os.getenv("API_SCANNER_MAX_OPENAPI_REFS", str(MAX_REF_COUNT)))
+    max_depth = int(os.getenv("API_SCANNER_MAX_OPENAPI_REF_DEPTH", str(MAX_REF_DEPTH)))
+    if not 1 <= max_refs <= 10_000 or not 1 <= max_depth <= 64:
+        raise ValueError("OpenAPI reference limits are outside their allowed range")
+    root = copy.deepcopy(document)
+    count = 0
+    unresolved = 0
+    external = 0
+
+    def pointer(ref: str):
+        if not ref.startswith("#/") or "#" in ref[1:]:
+            return None
+        current = root
+        for raw in ref[2:].split("/"):
+            token = raw.replace("~1", "/").replace("~0", "~")
+            # Reject malformed JSON Pointer escapes instead of guessing.
+            import re
+
+            if re.search(r"~(?![01])", raw):
+                return None
+            if isinstance(current, list):
+                if not token.isdigit() or int(token) >= len(current):
+                    return None
+                current = current[int(token)]
+            elif isinstance(current, dict) and token in current:
+                current = current[token]
+            else:
+                return None
+        return current
+
+    def walk(value, stack: tuple[str, ...], depth: int):
+        nonlocal count, unresolved, external
+        if isinstance(value, list):
+            return [walk(item, stack, depth) for item in value]
+        if not isinstance(value, dict):
+            return value
+        ref = value.get("$ref")
+        if isinstance(ref, str):
+            count += 1
+            if count > max_refs or depth >= max_depth or ref in stack:
+                unresolved += 1
+                return {key: walk(item, stack, depth + 1) for key, item in value.items() if key != "$ref"} | {
+                    "$ref": ref
+                }
+            if not ref.startswith("#/"):
+                external += 1
+                unresolved += 1
+                return {key: walk(item, stack, depth + 1) for key, item in value.items()}
+            target = pointer(ref)
+            if target is None:
+                unresolved += 1
+                return {key: walk(item, stack, depth + 1) for key, item in value.items()}
+            resolved = walk(target, stack + (ref,), depth + 1)
+            # OpenAPI Reference Object siblings do not override the referenced object;
+            # retain them additively for useful metadata where vendor extensions exist.
+            if isinstance(resolved, dict):
+                resolved = {**resolved, **{k: walk(v, stack, depth + 1) for k, v in value.items() if k != "$ref"}}
+            return resolved
+        return {key: walk(item, stack, depth) for key, item in value.items()}
+
+    return walk(root, (), 0), unresolved, external
+
+
 def discover_endpoints(
     base_url: str,
     headers: dict[str, str] | None = None,
@@ -248,16 +317,18 @@ def discover_endpoints(
             if swagger_version is not None and swagger_version != "2.0":
                 attempts.append(f"{spec_url}: unsupported Swagger version")
                 continue
-            endpoints = parse_openapi(data, base_url)
+            resolved_data, unresolved_count, external_ref_count = _resolve_local_references(data)
+            endpoints = parse_openapi(resolved_data, base_url)
             if endpoints:
-                ref_count, external_ref_count = _reference_inventory(data)
                 limits = (
                     [f"Reached the {MAX_ENDPOINTS}-operation limit; discovery may be incomplete."]
                     if len(endpoints) >= MAX_ENDPOINTS
                     else []
                 )
-                if ref_count:
-                    limits.append(f"{ref_count} schema reference(s) were not resolved.")
+                if unresolved_count:
+                    limits.append(
+                        f"{unresolved_count} reference(s) were unresolved or exceeded local resolution limits."
+                    )
                 if external_ref_count:
                     limits.append(f"{external_ref_count} external reference(s) were not fetched.")
                 return DiscoveryResult(
@@ -270,7 +341,7 @@ def discover_endpoints(
             attempts.append(f"{spec_url}: valid document contains no usable operations")
         except httpx.RequestError as exc:
             attempts.append(f"{spec_url}: request failed ({type(exc).__name__})")
-        except (InvalidURLError, ValueError):
+        except (InvalidURLError, ValueError, TypeError, RecursionError):
             attempts.append(f"{spec_url}: malformed JSON/YAML document or invalid specification URL")
         if specification_url:
             break

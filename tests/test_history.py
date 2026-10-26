@@ -15,11 +15,11 @@ from scanner.history import (
     count_severity_breakdown,
 )
 from scanner.models import ScanResult, Finding as PydanticFinding, Severity
-from web.app import app
+from web.app import app, _login_attempts
 
 
 @pytest.fixture(autouse=True)
-def isolated_db():
+def isolated_db(monkeypatch):
     """Use an isolated in-memory SQLite database for each test."""
     test_engine = create_engine(
         "sqlite:///:memory:",
@@ -28,6 +28,18 @@ def isolated_db():
     )
     Base.metadata.create_all(bind=test_engine)
     set_custom_engine(test_engine)
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_USERNAME", "history-test")
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_PASSWORD", "history-test-password")
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_SESSION_SECRET", "test-session-secret-for-dashboard-1234567890")
+    _login_attempts.clear()
+    import re
+
+    login_page = client.get("/login") if "client" in globals() else None
+    if login_page is not None:
+        csrf = re.search(r"name='csrf_token' value='([^']+)'", login_page.text).group(1)
+        client.post(
+            "/login", data={"username": "history-test", "password": "history-test-password", "csrf_token": csrf}
+        )
     yield test_engine
     Base.metadata.drop_all(bind=test_engine)
     test_engine.dispose()
@@ -268,7 +280,7 @@ def test_compare_scans_missing_id():
 # FASTAPI WEB ROUTES TESTS
 # ==========================================
 
-client = TestClient(app, client=("127.0.0.1", 50002))
+client = TestClient(app, client=("127.0.0.1", 50002), follow_redirects=False)
 
 
 def test_web_history_route():

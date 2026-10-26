@@ -33,6 +33,7 @@ MANIFEST
 # Virtual Environments
 venv/
 .venv/
+.verify-venv/
 ENV/
 env/
 env.bak/
@@ -65,6 +66,7 @@ data/*.db
 report.json
 report.html
 report.pdf
+report.sarif
 *.html.tmp
 
 # IDE / Editor artifacts
