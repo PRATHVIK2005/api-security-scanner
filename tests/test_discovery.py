@@ -4,21 +4,8 @@ from scanner.discovery import parse_openapi
 def test_openapi_authentication_detection():
 
     openapi_data = {
-        "security": [
-            {
-                "BearerAuth": []
-            }
-        ],
-        "paths": {
-            "/users": {
-                "get": {}
-            },
-            "/public": {
-                "get": {
-                    "security": []
-                }
-            }
-        }
+        "security": [{"BearerAuth": []}],
+        "paths": {"/users": {"get": {}}, "/public": {"get": {"security": []}}},
     }
 
     endpoints = parse_openapi(

@@ -8,25 +8,17 @@ DANGEROUS_METHODS = {
         "severity": Severity.MEDIUM,
         "title": "Dangerous TRACE Method Enabled",
         "description": (
-            "The API supports the TRACE HTTP method, which may expose "
-            "request information and increase security risks."
+            "The API supports the TRACE HTTP method, which may expose request information and increase security risks."
         ),
-        "recommendation": (
-            "Disable the TRACE HTTP method unless it is explicitly "
-            "required."
-        ),
+        "recommendation": ("Disable the TRACE HTTP method unless it is explicitly required."),
     },
     "CONNECT": {
         "severity": Severity.MEDIUM,
         "title": "Dangerous CONNECT Method Enabled",
         "description": (
-            "The API supports the CONNECT HTTP method, which may allow "
-            "unexpected proxy or tunneling behavior."
+            "The API supports the CONNECT HTTP method, which may allow unexpected proxy or tunneling behavior."
         ),
-        "recommendation": (
-            "Disable the CONNECT HTTP method unless it is explicitly "
-            "required."
-        ),
+        "recommendation": ("Disable the CONNECT HTTP method unless it is explicitly required."),
     },
 }
 
@@ -50,16 +42,10 @@ def check_http_methods(
         "",
     )
 
-    methods = {
-        method.strip().upper()
-        for method in allowed_methods.split(",")
-        if method.strip()
-    }
+    methods = {method.strip().upper() for method in allowed_methods.split(",") if method.strip()}
 
     for method in DANGEROUS_METHODS:
-
         if method in methods:
-
             issue = DANGEROUS_METHODS[method]
 
             findings.append(

@@ -1,6 +1,7 @@
 from collections.abc import Generator
 from pathlib import Path
-from sqlalchemy import create_engine
+import threading
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, Session
 from scanner.db.models import Base
 
@@ -12,6 +13,27 @@ DEFAULT_DATABASE_URL = f"sqlite:///{DEFAULT_DB_FILE}"
 
 _engine = None
 _SessionLocal = None
+_migration_lock = threading.Lock()
+
+_SQLITE_ADDITIONS = {
+    "scans": {
+        "scan_status": "VARCHAR(20) NOT NULL DEFAULT 'complete'",
+        "scan_started_at": "DATETIME",
+        "scan_completed_at": "DATETIME",
+        "scan_errors": "TEXT NOT NULL DEFAULT '[]'",
+        "discovery_attempts": "TEXT NOT NULL DEFAULT '[]'",
+        "discovery_limitations": "TEXT NOT NULL DEFAULT '[]'",
+    },
+    "findings": {
+        "confidence": "VARCHAR(20) NOT NULL DEFAULT 'low'",
+        "verification_status": "VARCHAR(30) NOT NULL DEFAULT 'potential'",
+        "evidence": "TEXT",
+        "response_status": "INTEGER",
+        "check_id": "VARCHAR(100)",
+        "finding_id": "VARCHAR(64)",
+        "finding_timestamp": "DATETIME",
+    },
+}
 
 
 def get_db_path() -> Path:
@@ -52,9 +74,19 @@ def get_session_factory():
 
 
 def init_db(engine=None) -> None:
-    """Create all database tables if they do not exist."""
+    """Create tables and apply additive SQLite column migrations without replacing data."""
     target_engine = engine or get_engine()
     Base.metadata.create_all(bind=target_engine)
+    if target_engine.dialect.name != "sqlite":
+        return
+    with _migration_lock:
+        for table, additions in _SQLITE_ADDITIONS.items():
+            existing = {column["name"] for column in inspect(target_engine).get_columns(table)}
+            with target_engine.begin() as connection:
+                for name, ddl in additions.items():
+                    if name in existing:
+                        continue
+                    connection.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{name}" {ddl}'))
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -84,8 +116,5 @@ def set_custom_engine(engine) -> None:
 
     Base.metadata.create_all(bind=engine)
 
-    if (
-        previous_engine is not None
-        and previous_engine is not engine
-    ):
+    if previous_engine is not None and previous_engine is not engine:
         previous_engine.dispose()

@@ -16,10 +16,10 @@ SENSITIVE_PATTERNS = {
         r'"access[_-]?key"\s*:',
     ],
     "Potential JWT Exposure": [
-        r'eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+',
+        r"eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+",
     ],
     "Potential Private Key Exposure": [
-        r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----',
+        r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
     ],
     "Potential Debug Information Exposure": [
         r"Traceback \(most recent call last\)",
@@ -44,35 +44,21 @@ def check_sensitive_data(
         return []
 
     for title, patterns in SENSITIVE_PATTERNS.items():
-
         for pattern in patterns:
-
             if re.search(
                 pattern,
                 body,
                 re.IGNORECASE,
             ):
-
-                severity = (
-                    Severity.HIGH
-                    if "Private Key" in title
-                    or "Password" in title
-                    else Severity.MEDIUM
-                )
+                severity = Severity.HIGH if "Private Key" in title or "Password" in title else Severity.MEDIUM
 
                 findings.append(
                     Finding(
                         title=title,
                         severity=severity,
-                        description=(
-                            "The API response contains content "
-                            "that may expose sensitive information."
-                        ),
+                        description=("The API response contains content that may expose sensitive information."),
                         endpoint=endpoint,
-                        recommendation=(
-                            "Remove sensitive data and debug "
-                            "information from API responses."
-                        ),
+                        recommendation=("Remove sensitive data and debug information from API responses."),
                     )
                 )
 

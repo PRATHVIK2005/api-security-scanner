@@ -189,9 +189,7 @@ def test_compare_scans_improved():
     sr1 = ScanResult(
         target="http://api.local",
         endpoints_scanned=4,
-        findings=[
-            PydanticFinding(severity=Severity.HIGH, title="High Issue", endpoint="/api")
-        ],
+        findings=[PydanticFinding(severity=Severity.HIGH, title="High Issue", endpoint="/api")],
         security_score=60.0,
         risk_level="HIGH",
     )
@@ -226,9 +224,7 @@ def test_compare_scans_worsened():
     sr2 = ScanResult(
         target="http://api.local",
         endpoints_scanned=2,
-        findings=[
-            PydanticFinding(severity=Severity.CRITICAL, title="Critical Issue", endpoint="/login")
-        ],
+        findings=[PydanticFinding(severity=Severity.CRITICAL, title="Critical Issue", endpoint="/login")],
         security_score=40.0,
         risk_level="CRITICAL",
     )
@@ -272,7 +268,7 @@ def test_compare_scans_missing_id():
 # FASTAPI WEB ROUTES TESTS
 # ==========================================
 
-client = TestClient(app)
+client = TestClient(app, client=("127.0.0.1", 50002))
 
 
 def test_web_history_route():
@@ -301,7 +297,9 @@ def test_web_scan_details_404():
 
 def test_web_compare_route():
     """Test GET /compare with two valid scan IDs."""
-    sr1 = ScanResult(target="http://api.local", endpoints_scanned=1, findings=[], security_score=50.0, risk_level="HIGH")
+    sr1 = ScanResult(
+        target="http://api.local", endpoints_scanned=1, findings=[], security_score=50.0, risk_level="HIGH"
+    )
     sr2 = ScanResult(target="http://api.local", endpoints_scanned=1, findings=[], security_score=80.0, risk_level="LOW")
     s1 = save_scan(sr1)
     s2 = save_scan(sr2)
@@ -340,4 +338,3 @@ def test_save_scan_metadata_columns():
     assert retrieved.discovery_source == "OpenAPI Spec"
     assert retrieved.specification_url == "http://api.local/openapi.json"
     assert retrieved.scan_mode == "active"
-

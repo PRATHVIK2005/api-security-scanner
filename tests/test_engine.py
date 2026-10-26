@@ -25,14 +25,13 @@ def test_passive_methods():
 
 def test_active_methods():
     assert "GET" in ACTIVE_METHODS
-    assert "POST" in ACTIVE_METHODS
-    assert "PUT" in ACTIVE_METHODS
-    assert "PATCH" in ACTIVE_METHODS
-
+    assert "POST" not in ACTIVE_METHODS
+    assert "PUT" not in ACTIVE_METHODS
+    assert "PATCH" not in ACTIVE_METHODS
     assert "DELETE" not in ACTIVE_METHODS
 
 
-@patch("scanner.engine.httpx.Client")
+@patch("scanner.engine.create_scanner_client")
 @patch("scanner.engine.discover_endpoints")
 def test_engine_detects_bola_risk(
     mock_discover_endpoints,
@@ -62,27 +61,19 @@ def test_engine_detects_bola_risk(
     mock_client_instance.get.return_value = mock_response
     mock_client_instance.options.return_value = mock_response
 
-    mock_client.return_value.__enter__.return_value = (
-        mock_client_instance
-    )
+    mock_client.return_value = mock_client_instance
 
     result = scan(
         url="https://api.example.com",
         mode=ScanMode.PASSIVE,
     )
 
-    titles = [
-        finding.title
-        for finding in result.findings
-    ]
+    titles = [finding.title for finding in result.findings]
 
-    assert (
-        "Potential Broken Object Level Authorization"
-        in titles
-    )
+    assert "Potential Broken Object Level Authorization" in titles
 
 
-@patch("scanner.engine.httpx.Client")
+@patch("scanner.engine.create_scanner_client")
 @patch("scanner.engine.discover_endpoints")
 def test_engine_detects_legacy_api(
     mock_discover_endpoints,
@@ -112,25 +103,19 @@ def test_engine_detects_legacy_api(
     mock_client_instance.get.return_value = mock_response
     mock_client_instance.options.return_value = mock_response
 
-    mock_client.return_value.__enter__.return_value = (
-        mock_client_instance
-    )
-
+    mock_client.return_value = mock_client_instance
 
     result = scan(
         url="https://api.example.com",
         mode=ScanMode.PASSIVE,
     )
 
-    titles = [
-        finding.title
-        for finding in result.findings
-    ]
+    titles = [finding.title for finding in result.findings]
 
     assert "Potential Deprecated API Endpoint" in titles
 
 
-@patch("scanner.engine.httpx.Client")
+@patch("scanner.engine.create_scanner_client")
 @patch("scanner.engine.discover_endpoints")
 def test_engine_detects_token_exposure(
     mock_discover_endpoints,
@@ -163,25 +148,20 @@ def test_engine_detects_token_exposure(
     mock_client_instance.get.return_value = mock_response
     mock_client_instance.options.return_value = mock_response
 
-    mock_client.return_value.__enter__.return_value = (
-        mock_client_instance
-    )
+    mock_client.return_value = mock_client_instance
 
     result = scan(
         url="https://api.example.com",
         mode=ScanMode.PASSIVE,
     )
 
-    titles = [
-        finding.title
-        for finding in result.findings
-    ]
+    titles = [finding.title for finding in result.findings]
 
     assert "JWT Token Exposed in Response" in titles
     assert "Potential API Key Exposed in Response" in titles
 
 
-@patch("scanner.engine.httpx.Client")
+@patch("scanner.engine.create_scanner_client")
 @patch("scanner.engine.discover_endpoints")
 def test_engine_passes_authorization_header(
     mock_discover_endpoints,
@@ -193,7 +173,7 @@ def test_engine_passes_authorization_header(
     )
 
     mock_client_instance = Mock()
-    mock_client.return_value.__enter__.return_value = mock_client_instance
+    mock_client.return_value = mock_client_instance
 
     scan(
         url="https://api.example.com",
@@ -201,10 +181,40 @@ def test_engine_passes_authorization_header(
         token="test_token_123",
     )
 
-    mock_client.assert_called_once_with(
-        timeout=10,
-        follow_redirects=True,
-        headers={"Authorization": "Bearer test_token_123"},
-    )
+    mock_client.assert_called_once()
+    kwargs = mock_client.call_args.kwargs
+    assert kwargs["headers"] == {"Authorization": "Bearer test_token_123"}
+    assert isinstance(kwargs["scan_deadline"], float)
 
-
+
+@patch("scanner.engine.create_scanner_client")
+@patch("scanner.engine.discover_endpoints")
+def test_engine_marks_operator_interruption_as_interrupted(
+    mock_discover_endpoints,
+    mock_client,
+):
+    mock_discover_endpoints.return_value = DiscoveryResult(
+        endpoints=[Endpoint(url="https://api.example.com/health", method="GET", path="/health")],
+        source="OpenAPI",
+    )
+    client = Mock()
+    client.request.side_effect = KeyboardInterrupt
+    mock_client.return_value = client
+
+    result = scan("https://api.example.com")
+
+    assert result.scan_status == "interrupted"
+    assert any("interrupted by operator" in error for error in result.errors)
+
+
+@patch("scanner.engine.create_scanner_client")
+@patch("scanner.engine.discover_endpoints", side_effect=KeyboardInterrupt)
+def test_engine_marks_discovery_interruption_as_interrupted(mock_discover_endpoints, mock_client):
+    client = Mock()
+    mock_client.return_value = client
+
+    result = scan("https://api.example.com")
+
+    assert result.scan_status == "interrupted"
+    assert result.endpoints_scanned == 0
+    assert any("during endpoint discovery" in error for error in result.errors)

@@ -60,18 +60,12 @@ def calculate_security_score(
             0,
         )
 
-        additional_penalty = (
-            ADDITIONAL_OCCURRENCE_PENALTIES.get(
-                severity,
-                0,
-            )
-            * (len(findings_group) - 1)
-        )
+        additional_penalty = ADDITIONAL_OCCURRENCE_PENALTIES.get(
+            severity,
+            0,
+        ) * (len(findings_group) - 1)
 
-        group_penalty = (
-            first_penalty
-            + additional_penalty
-        )
+        group_penalty = first_penalty + additional_penalty
 
         max_penalty = MAX_PENALTIES.get(
             severity,

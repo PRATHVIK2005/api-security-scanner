@@ -1,9 +1,16 @@
 import logging
+import ipaddress
+import threading
+import time
+import json
+from datetime import datetime, timezone
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form, HTTPException, Query, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from urllib.parse import urlparse
 
 from scanner.engine import scan
 from scanner.models import Finding as ModelFinding, ScanMode, ScanResult, Severity
@@ -13,8 +20,22 @@ from scanner.reports.json_report import generate_json_report
 from scanner.reports.html_report import generate_html_report
 from scanner.reports.pdf_report import generate_pdf_report
 from scanner.validation import validate_target_url, InvalidURLError
+from scanner.redaction import redact_text, redact_url
 
 logger = logging.getLogger("api_security_scanner.web")
+_scan_slots = threading.BoundedSemaphore(1)
+_scan_times: dict[str, deque[float]] = defaultdict(deque)
+_scan_rate_lock = threading.Lock()
+
+
+def _dashboard_target_allowed(url: str) -> bool:
+    """The dashboard is intentionally restricted to loopback targets."""
+    hostname = (urlparse(url).hostname or "").lower()
+    try:
+        is_loopback = ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        is_loopback = False
+    return is_loopback
 
 
 def scan_record_to_result(scan_record) -> ScanResult:
@@ -36,6 +57,13 @@ def scan_record_to_result(scan_record) -> ScanResult:
                 owasp=f.owasp,
                 description=f.description,
                 recommendation=f.recommendation,
+                confidence=getattr(f, "confidence", "low") or "low",
+                verification_status=getattr(f, "verification_status", "potential") or "potential",
+                evidence=getattr(f, "evidence", None),
+                response_status=getattr(f, "response_status", None),
+                check_id=getattr(f, "check_id", None),
+                finding_id=getattr(f, "finding_id", None),
+                timestamp=getattr(f, "finding_timestamp", None) or datetime.now(timezone.utc),
             )
         )
 
@@ -59,7 +87,32 @@ def scan_record_to_result(scan_record) -> ScanResult:
         security_score=scan_record.security_score,
         risk_level=scan_record.risk_level,
         scan_mode=scan_mode,
+        scan_status=getattr(scan_record, "scan_status", "complete") or "complete",
+        scan_started_at=getattr(scan_record, "scan_started_at", None) or scan_record.scan_date,
+        scan_completed_at=getattr(scan_record, "scan_completed_at", None) or scan_record.scan_date,
+        errors=_json_list(getattr(scan_record, "scan_errors", "[]")),
+        discovery_attempts=_json_list(getattr(scan_record, "discovery_attempts", "[]")),
+        discovery_limitations=_json_list(getattr(scan_record, "discovery_limitations", "[]")),
     )
+
+
+def _json_list(value: str | None) -> list[str]:
+    try:
+        loaded = json.loads(value or "[]")
+        return [(redact_text(str(item)) or str(item)) for item in loaded] if isinstance(loaded, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
+def _sanitize_scan_record_for_display(scan_record) -> None:
+    """Redact records created by pre-hardening versions before rendering history."""
+    scan_record.target_url = redact_url(scan_record.target_url) or scan_record.target_url
+    for finding in scan_record.findings:
+        finding.endpoint = redact_url(finding.endpoint) or finding.endpoint
+        for field in ("title", "description", "recommendation", "evidence"):
+            value = getattr(finding, field, None)
+            if value is not None:
+                setattr(finding, field, redact_text(value))
 
 
 @asynccontextmanager
@@ -78,6 +131,45 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.middleware("http")
+async def enforce_local_dashboard(request: Request, call_next):
+    """Deny non-loopback clients and browser cross-site scan submissions."""
+    client_host = request.client.host if request.client else ""
+    try:
+        if not ipaddress.ip_address(client_host).is_loopback:
+            return JSONResponse({"detail": "Dashboard is local-only."}, status_code=403)
+    except ValueError:
+        return JSONResponse({"detail": "Dashboard client address is invalid."}, status_code=403)
+
+    if request.url.path == "/scan" and request.method == "POST":
+        fetch_site = request.headers.get("sec-fetch-site", "").lower()
+        origin = request.headers.get("origin")
+        if not origin:
+            return JSONResponse({"detail": "Same-origin header is required for scan submissions."}, status_code=403)
+        if fetch_site in {"cross-site", "same-site"}:
+            return JSONResponse({"detail": "Cross-site scan submissions are not allowed."}, status_code=403)
+        if origin:
+            origin_host = urlparse(origin).netloc.lower()
+            host_header = request.headers.get("host", "").lower()
+            if not origin_host or origin_host != host_header:
+                return JSONResponse({"detail": "Cross-origin scan submissions are not allowed."}, status_code=403)
+
+        now = time.monotonic()
+        with _scan_rate_lock:
+            recent = _scan_times[client_host]
+            while recent and now - recent[0] > 60:
+                recent.popleft()
+            if len(recent) >= 10:
+                return JSONResponse({"detail": "Scan submission rate limit reached."}, status_code=429)
+            recent.append(now)
+
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+    return response
 
 
 app.mount(
@@ -120,10 +212,22 @@ def run_scan(
             request=request,
             name="index.html",
             context={
-                "selected_url": url,
+                "selected_url": redact_url(url) or "",
                 "selected_mode": mode,
                 "error": str(e),
             },
+        )
+
+    if not _dashboard_target_allowed(validated_url):
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "selected_url": redact_url(url) or "",
+                "selected_mode": mode,
+                "error": "Dashboard scans are restricted to loopback targets. Remote dashboard scanning is disabled.",
+            },
+            status_code=403,
         )
 
     try:
@@ -133,24 +237,29 @@ def run_scan(
             request=request,
             name="index.html",
             context={
-                "selected_url": url,
+                "selected_url": redact_url(url) or "",
                 "selected_mode": mode,
-                "error": (
-                    f"Invalid scan mode '{mode}'. "
-                    "Use 'passive' or 'active'."
-                ),
+                "error": (f"Invalid scan mode '{mode}'. Use 'passive' or 'active'."),
             },
         )
 
-    clean_token = (
-        token.strip()
-        if token and token.strip()
-        else None
-    )
+    clean_token = token.strip() if token and token.strip() else None
 
     # Security: track only whether a token was supplied.
     # Never echo the raw token back to the user.
     token_provided = clean_token is not None
+
+    if not _scan_slots.acquire(blocking=False):
+        return templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "selected_url": redact_url(url) or "",
+                "selected_mode": mode,
+                "error": "Another scan is already running.",
+            },
+            status_code=429,
+        )
 
     try:
         result = scan(
@@ -159,25 +268,21 @@ def run_scan(
             token=clean_token,
         )
 
-    except Exception:
-        logger.exception(
-            "Scan failed for target: %s",
-            url,
-        )
+    except Exception as exc:
+        logger.error("Scan failed for target %s (%s)", redact_url(url), type(exc).__name__)
 
         return templates.TemplateResponse(
             request=request,
             name="index.html",
             context={
-                "selected_url": url,
+                "selected_url": redact_url(url) or "",
                 "selected_mode": mode,
-                "error": (
-                    "The scan could not be completed. "
-                    "Please verify the target and try again."
-                ),
+                "error": ("The scan could not be completed. Please verify the target and try again."),
             },
             status_code=500,
         )
+    finally:
+        _scan_slots.release()
 
     # Persist scan result to SQLite history
     saved_scan_id = None
@@ -190,16 +295,14 @@ def run_scan(
         saved_scan_id = saved_scan.id
 
     except Exception:
-        logger.exception(
-            "Database error while saving scan result"
-        )
+        logger.error("Database error while saving scan result")
 
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
             "result": result,
-            "selected_url": url,
+            "selected_url": redact_url(url) or "",
             "selected_mode": mode,
             # Never pass the raw token back.
             "token_provided": token_provided,
@@ -214,6 +317,8 @@ def run_scan(
 )
 def view_history(request: Request):
     scans = get_all_scans()
+    for scan_record in scans:
+        _sanitize_scan_record_for_display(scan_record)
     return templates.TemplateResponse(
         request=request,
         name="history.html",
@@ -235,11 +340,14 @@ def view_scan_details(request: Request, scan_id: int):
             detail=f"Scan with ID {scan_id} not found in database.",
         )
 
+    _sanitize_scan_record_for_display(scan_record)
+
     return templates.TemplateResponse(
         request=request,
         name="scan_details.html",
         context={
             "scan": scan_record,
+            "scan_errors": _json_list(getattr(scan_record, "scan_errors", "[]")),
         },
     )
 
@@ -261,27 +369,21 @@ def export_scan_report(scan_id: int, export_format: str):
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="scan_{scan_id}_report.pdf"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="scan_{scan_id}_report.pdf"'},
         )
     elif fmt == "html":
         html_content = generate_html_report(scan_result)
         return Response(
             content=html_content,
             media_type="text/html; charset=utf-8",
-            headers={
-                "Content-Disposition": f'attachment; filename="scan_{scan_id}_report.html"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="scan_{scan_id}_report.html"'},
         )
     elif fmt == "json":
         json_content = generate_json_report(scan_result)
         return Response(
             content=json_content,
             media_type="application/json",
-            headers={
-                "Content-Disposition": f'attachment; filename="scan_{scan_id}_report.json"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="scan_{scan_id}_report.json"'},
         )
     else:
         raise HTTPException(
@@ -305,6 +407,9 @@ def compare_scans_route(
             status_code=404,
             detail=f"Could not compare scans #{scan1} and #{scan2}. One or both scans do not exist.",
         )
+
+    _sanitize_scan_record_for_display(comparison["scan1"])
+    _sanitize_scan_record_for_display(comparison["scan2"])
 
     return templates.TemplateResponse(
         request=request,

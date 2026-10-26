@@ -14,36 +14,20 @@ def analyze_cors_response(
 
     findings = []
 
-    allow_origin = response.headers.get(
-        "access-control-allow-origin"
-    )
+    allow_origin = response.headers.get("access-control-allow-origin")
 
-    allow_credentials = response.headers.get(
-        "access-control-allow-credentials"
-    )
+    allow_credentials = response.headers.get("access-control-allow-credentials")
 
     if allow_origin == "*":
-
-        severity = (
-            Severity.HIGH
-            if allow_credentials
-            and allow_credentials.lower() == "true"
-            else Severity.MEDIUM
-        )
+        severity = Severity.HIGH if allow_credentials and allow_credentials.lower() == "true" else Severity.MEDIUM
 
         findings.append(
             Finding(
                 title="Overly Permissive CORS Policy",
                 severity=severity,
-                description=(
-                    "The API allows cross-origin requests "
-                    "from any origin."
-                ),
+                description=("The API allows cross-origin requests from any origin."),
                 endpoint=endpoint,
-                recommendation=(
-                    "Restrict Access-Control-Allow-Origin "
-                    "to explicitly trusted origins."
-                ),
+                recommendation=("Restrict Access-Control-Allow-Origin to explicitly trusted origins."),
             )
         )
 

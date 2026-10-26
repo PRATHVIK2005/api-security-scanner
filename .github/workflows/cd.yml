@@ -88,6 +88,17 @@ jobs:
       # ── 6. Verify generated assets ────────────────────────────────────────
       - name: Verify release assets
         run: |
+          python - <<'EOF'
+          from pathlib import Path
+
+          html = Path("release_report.html").read_text(encoding="utf-8")
+          pdf = Path("release_report.pdf").read_bytes()
+          assert "<!DOCTYPE html>" in html
+          assert html.endswith("</html>")
+          assert pdf.startswith(b"%PDF-")
+          assert len(pdf) > 100
+          print("Generated HTML and PDF assets passed basic format checks")
+          EOF
           ls -lh release_report.html release_report.pdf
 
       # ── 7. Upload release assets ──────────────────────────────────────────

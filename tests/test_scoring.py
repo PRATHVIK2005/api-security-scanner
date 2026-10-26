@@ -72,6 +72,7 @@ def test_score_never_goes_below_zero():
     # Score clamped to 0
     assert score == 0
 
+
 def test_different_finding_titles_get_full_penalties():
 
     findings = [
@@ -93,7 +94,8 @@ def test_different_finding_titles_get_full_penalties():
 
     # 15 + 15 = 30 penalty
     assert score == 70
-    
+
+
 def test_repeated_low_findings_have_reduced_penalty():
 
     findings = [
@@ -113,8 +115,8 @@ def test_repeated_low_findings_have_reduced_penalty():
     # Total penalty = 5
 
     assert score == 95
-    
-    
+
+
 def test_risk_levels():
 
     assert get_risk_level(100) == "LOW"

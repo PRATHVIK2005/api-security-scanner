@@ -54,9 +54,7 @@ def check_api_versioning(
                 endpoint=endpoint_url,
                 method=method,
                 owasp="API9:2023 - Improper Inventory Management",
-                description=(
-                    "The endpoint route structure contains legacy or deprecated naming conventions."
-                ),
+                description=("The endpoint route structure contains legacy or deprecated naming conventions."),
                 recommendation=(
                     "Review whether this legacy endpoint is still required and remove or restrict access to retired API routes."
                 ),
@@ -64,12 +62,7 @@ def check_api_versioning(
         )
 
     # 3. Detect early / pre-release / unmaintained API version prefixes
-    if (
-        "/v0/" in path_lower
-        or "/v1beta" in path_lower
-        or "/v1alpha" in path_lower
-        or "/v0." in path_lower
-    ):
+    if "/v0/" in path_lower or "/v1beta" in path_lower or "/v1alpha" in path_lower or "/v0." in path_lower:
         findings.append(
             Finding(
                 severity=Severity.LOW,
@@ -77,9 +70,7 @@ def check_api_versioning(
                 endpoint=endpoint_url,
                 method=method,
                 owasp="API9:2023 - Improper Inventory Management",
-                description=(
-                    "The endpoint appears to use an early, preview, or pre-release API version prefix."
-                ),
+                description=("The endpoint appears to use an early, preview, or pre-release API version prefix."),
                 recommendation=(
                     "Maintain an accurate API catalog and migrate traffic from beta/alpha endpoints to stable GA releases."
                 ),

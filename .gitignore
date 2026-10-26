@@ -51,6 +51,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.pytest-tmp/
 .ruff_cache/
 .mypy_cache/
 
@@ -78,6 +79,8 @@ report.pdf
 .env
 .env.*
 !.env.example
+bola-config*.json
+**/bola-config*.json
 
 # Generated release assets
 release_report.html

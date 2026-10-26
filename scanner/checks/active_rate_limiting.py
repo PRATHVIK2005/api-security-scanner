@@ -16,7 +16,6 @@ def check_active_rate_limiting(
     """
 
     for _ in range(MAX_TEST_REQUESTS):
-
         try:
             response = client.get(endpoint)
 
@@ -30,14 +29,8 @@ def check_active_rate_limiting(
         Finding(
             title="Rate Limiting Not Verified",
             severity=Severity.MEDIUM,
-            description=(
-                "The endpoint did not return HTTP 429 "
-                "during a small controlled rate-limit test."
-            ),
+            description=("The endpoint did not return HTTP 429 during a small controlled rate-limit test."),
             endpoint=endpoint,
-            recommendation=(
-                "Implement and verify appropriate rate limiting "
-                "for sensitive API endpoints."
-            ),
+            recommendation=("Implement and verify appropriate rate limiting for sensitive API endpoints."),
         )
     ]

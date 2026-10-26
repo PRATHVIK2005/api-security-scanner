@@ -8,11 +8,8 @@ from scanner.checks.active_rate_limiting import (
 def test_rate_limiting_detected():
 
     class MockClient:
-
         def get(self, endpoint):
-            return httpx.Response(
-                429
-            )
+            return httpx.Response(429)
 
     findings = check_active_rate_limiting(
         MockClient(),
@@ -25,11 +22,8 @@ def test_rate_limiting_detected():
 def test_rate_limiting_not_detected():
 
     class MockClient:
-
         def get(self, endpoint):
-            return httpx.Response(
-                200
-            )
+            return httpx.Response(200)
 
     findings = check_active_rate_limiting(
         MockClient(),

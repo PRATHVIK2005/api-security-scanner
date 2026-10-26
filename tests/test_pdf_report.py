@@ -66,4 +66,3 @@ def test_generate_pdf_report_active_mode():
 
     assert isinstance(pdf_bytes, bytes)
     assert pdf_bytes.startswith(b"%PDF")
-

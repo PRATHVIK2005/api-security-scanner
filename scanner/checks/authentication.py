@@ -32,26 +32,16 @@ def check_missing_authentication(
 
     path_lower = endpoint.path.lower()
 
-    is_sensitive = any(
-        keyword in path_lower
-        for keyword in SENSITIVE_KEYWORDS
-    )
+    is_sensitive = any(keyword in path_lower for keyword in SENSITIVE_KEYWORDS)
 
     if is_sensitive and not endpoint.requires_auth:
-
         return [
             Finding(
                 title="Potential Missing Authentication",
                 severity=Severity.HIGH,
-                description=(
-                    "A potentially sensitive API endpoint "
-                    "does not declare authentication requirements."
-                ),
+                description=("A potentially sensitive API endpoint does not declare authentication requirements."),
                 endpoint=endpoint.url,
-                recommendation=(
-                    "Require appropriate authentication and "
-                    "authorization before allowing access."
-                ),
+                recommendation=("Require appropriate authentication and authorization before allowing access."),
             )
         ]
 

@@ -4,14 +4,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
-from scanner.db.models import Base
-from scanner.db.session import set_custom_engine
+from scanner.db.models import Base, Finding as FindingRecord, Scan
+from scanner.db.session import get_session_factory, set_custom_engine
 from scanner.models import Finding, ScanMode, ScanResult, Severity
-from web.app import app
+from web.app import app, _scan_times
 
 
 @pytest.fixture(autouse=True)
 def isolated_db():
+    _scan_times.clear()
     test_engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -27,7 +28,7 @@ def isolated_db():
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return TestClient(app, client=("127.0.0.1", 50000), headers={"Origin": "http://testserver"})
 
 
 def test_get_root_returns_200(client):
@@ -91,7 +92,7 @@ def test_valid_scan_passive_mode(client):
 def test_valid_scan_active_mode(client):
     """5. Active scan mode is correctly processed."""
     mock_result = ScanResult(
-        target="https://api.example.com",
+        target="http://127.0.0.1:8000",
         endpoints_scanned=5,
         unreachable_endpoints=0,
         findings=[],
@@ -105,14 +106,14 @@ def test_valid_scan_active_mode(client):
         response = client.post(
             "/scan",
             data={
-                "url": "https://api.example.com",
+                "url": "http://127.0.0.1:8000",
                 "mode": "active",
             },
         )
 
         assert response.status_code == 200
         mock_scan.assert_called_once_with(
-            url="https://api.example.com",
+            url="http://127.0.0.1:8000",
             mode=ScanMode.ACTIVE,
             token=None,
         )
@@ -147,10 +148,92 @@ def test_invalid_url_rejected_gracefully(client):
         assert "Invalid" in response.text or "error" in response.text.lower()
 
 
+def test_dashboard_does_not_echo_credentials_from_invalid_target(client):
+    response = client.post(
+        "/scan",
+        data={"url": "http://user:password@127.0.0.1:8000/?api_key=secret-value", "mode": "passive"},
+    )
+    assert response.status_code == 200
+    for secret in ("user:password", "secret-value"):
+        assert secret not in response.text
+
+
+def test_history_redacts_credentials_from_legacy_database_records(client):
+    session = get_session_factory()()
+    record = Scan(
+        target_url="https://user:password@api.example.test/?api_key=private-query-value",
+        security_score=50,
+        risk_level="MEDIUM",
+        scan_mode="passive",
+        findings_count=1,
+        findings=[
+            FindingRecord(
+                severity="LOW",
+                title="Cookie: sessionid=private-cookie-value",
+                endpoint="https://user:password@api.example.test/items?token=private-token-value",
+                method="GET",
+                evidence="Authorization: Bearer private-bearer-value",
+            )
+        ],
+    )
+    session.add(record)
+    session.commit()
+    scan_id = record.id
+    session.close()
+
+    for route in ("/history", f"/history/{scan_id}", f"/history/{scan_id}/export/json"):
+        response = client.get(route)
+        assert response.status_code == 200
+        for secret in (
+            "user:password",
+            "private-query-value",
+            "private-cookie-value",
+            "private-token-value",
+            "private-bearer-value",
+        ):
+            assert secret not in response.text
+
+
+def test_dashboard_rejects_remote_targets_not_in_allowlist(client):
+    response = client.post("/scan", data={"url": "https://attacker.example", "mode": "passive"})
+    assert response.status_code == 403
+    assert "remote dashboard scanning is disabled" in response.text.lower()
+
+
+def test_dashboard_requires_literal_loopback_address(client):
+    with patch("web.app.scan") as mock_scan:
+        response = client.post("/scan", data={"url": "http://localhost:8001", "mode": "passive"})
+    assert response.status_code == 403
+    mock_scan.assert_not_called()
+
+
+def test_dashboard_rejects_non_loopback_clients():
+    remote_client = TestClient(app, client=("203.0.113.9", 53000))
+    response = remote_client.get("/history")
+    assert response.status_code == 403
+    assert "local-only" in response.json()["detail"]
+
+
+def test_dashboard_rejects_cross_site_scan_submission(client):
+    response = client.post(
+        "/scan",
+        headers={"Origin": "https://attacker.example", "Sec-Fetch-Site": "cross-site"},
+        data={"url": "http://127.0.0.1:8000", "mode": "passive"},
+    )
+    assert response.status_code == 403
+
+
+def test_dashboard_rejects_scan_submission_without_origin():
+    no_origin = TestClient(app, client=("127.0.0.1", 50000))
+    response = no_origin.post("/scan", data={"url": "http://127.0.0.1:8000", "mode": "passive"})
+    assert response.status_code == 403
+    assert "same-origin" in response.json()["detail"].lower()
+
+
 def test_unreachable_api_handled_gracefully(client):
     """8. Unreachable targets return appropriate result or error message."""
     mock_result = ScanResult(
-        target="http://192.0.2.1:8000",
+        target="http://127.0.0.1:9999",
         endpoints_scanned=1,
         unreachable_endpoints=1,
         findings=[],
@@ -164,7 +247,7 @@ def test_unreachable_api_handled_gracefully(client):
         response = client.post(
             "/scan",
             data={
-                "url": "http://192.0.2.1:8000",
+                "url": "http://127.0.0.1:9999",
                 "mode": "passive",
             },
         )
@@ -175,7 +258,7 @@ def test_unreachable_api_handled_gracefully(client):
 def test_authentication_input_passed_to_scanner(client):
     """9. Authentication token is securely passed to scanner and never echoed back in HTML."""
     mock_result = ScanResult(
-        target="https://api.example.com",
+        target="http://127.0.0.1:8000",
         endpoints_scanned=2,
         unreachable_endpoints=0,
         findings=[],
@@ -191,7 +274,7 @@ def test_authentication_input_passed_to_scanner(client):
         response = client.post(
             "/scan",
             data={
-                "url": "https://api.example.com",
+                "url": "http://127.0.0.1:8000",
                 "mode": "passive",
                 "token": secret_jwt,
             },
@@ -199,7 +282,7 @@ def test_authentication_input_passed_to_scanner(client):
 
         assert response.status_code == 200
         mock_scan.assert_called_once_with(
-            url="https://api.example.com",
+            url="http://127.0.0.1:8000",
             mode=ScanMode.PASSIVE,
             token=secret_jwt,
         )

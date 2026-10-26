@@ -14,7 +14,7 @@ def test_demo_api_discovery_and_openapi_parsing():
         assert resp.status_code == 200
         data = resp.json()
         endpoints = parse_openapi(data, "http://testserver")
-        
+
         paths = {e.path for e in endpoints}
         assert "/admin" in paths
         assert "/token-test" in paths
