@@ -30,6 +30,7 @@ api-scanner scan --url http://127.0.0.1:8001 --token $env:API_TOKEN --header "X-
 api-scanner scan --url http://127.0.0.1:8001 --format json --output .\scan.json
 api-scanner scan --url http://127.0.0.1:8001 --format html --output .\scan.html
 api-scanner scan --url http://127.0.0.1:8001 --format pdf --output .\scan.pdf
+api-scanner scan --url http://127.0.0.1:8001 --format sarif --output .\scan.sarif
 api-scanner scan --url http://127.0.0.1:8001 --spec-url http://127.0.0.1:8001/openapi.json
 api-scanner scan --url http://127.0.0.1:8001 --endpoints .\endpoints.json
 api-scanner history
@@ -63,13 +64,30 @@ Requests default to public global IP destinations. For an explicitly authorized 
 $env:API_SCANNER_ALLOWED_CIDRS = '127.0.0.1/32'
 ```
 
+Application DNS and peer checks should be backed by OS egress filtering. Example nftables policy for a dedicated Linux scanner network namespace (replace the documentation-only addresses with the one approved target and its resolver before loading; do not apply this sample to a shared host):
+
+```nft
+table inet scanner_egress {
+  chain output {
+    type filter hook output priority 0; policy drop;
+    oifname "lo" accept
+    ct state established,related accept
+    ip daddr 192.0.2.53 udp dport 53 accept
+    ip daddr 192.0.2.53 tcp dport 53 accept
+    ip daddr 198.51.100.23 tcp dport { 80, 443 } accept
+  }
+}
+```
+
+This permits DNS only to the selected resolver and HTTP(S) only to one fixed IPv4 target; all IPv6 egress remains blocked unless a separately approved destination rule is added. A fixed egress allowlist can stop a rebinding answer from reaching an alternate address even if application policy changes. Keep the scanner's `API_SCANNER_ALLOWED_CIDRS` narrow as well.
+
 The scanner applies this policy to the target and OpenAPI requests. It does not follow redirects or fetch external `$ref` documents. It caps each response at 1 MB by default, request bodies at 64 KB, each scan at 5,000 requests, and total scan duration at 300 seconds. Limits can be adjusted with `API_SCANNER_CONNECT_TIMEOUT`, `API_SCANNER_READ_TIMEOUT`, `API_SCANNER_TOTAL_REQUEST_TIMEOUT`, `API_SCANNER_DNS_TIMEOUT`, `API_SCANNER_MAX_RESPONSE_BYTES`, `API_SCANNER_MAX_REQUEST_BYTES`, `API_SCANNER_MAX_REQUESTS_PER_SCAN`, and `API_SCANNER_MAX_SCAN_SECONDS`; values are validated and hard maxima apply. Compressed responses are refused to avoid unbounded decompression.
 
 ## Discovery and coverage
 
 Common specification locations include `/openapi.json`, `/swagger.json`, `/api-docs`, `/v3/api-docs`, `/api/openapi.json`, and `/swagger/v1/swagger.json`. Use `--spec-url` for another same-origin location. A 404 at one location does not stop the remaining probes. Each attempt records an HTTP status, redirect refusal, malformed document, or empty-spec outcome in scan metadata. If no usable spec is found, fallback mode scans only the base URL and marks coverage as incomplete.
 
-OpenAPI parsing retains methods, path and operation parameters, JSON request/response schemas, tags, deprecation, operation identifiers, and security metadata. External `$ref` documents are not resolved. OpenAPI callbacks/webhooks and server URL overrides are not followed.
+OpenAPI parsing retains methods, path and operation parameters, JSON request/response schemas, tags, deprecation, operation identifiers, and security metadata. Local JSON Pointer references are resolved with count and depth limits (`API_SCANNER_MAX_OPENAPI_REFS`, `API_SCANNER_MAX_OPENAPI_REF_DEPTH`; defaults 2,000 and 32). Cyclic, malformed, missing, and external references are retained as discovery limitations. External `$ref` documents are not fetched, including same-origin refs. OpenAPI callbacks/webhooks and server URL overrides are not followed.
 
 ## Checks and interpretation
 
@@ -77,19 +95,42 @@ Checks inspect authentication declarations, object identifiers, writable and ret
 
 Most checks are heuristic. An object ID does not prove BOLA; a missing rate-limit header does not prove the absence of server-side throttling; an input named `url` does not prove SSRF; a sensitive-looking path does not prove broken function authorization. Findings carry confidence and verification status; review them in application context.
 
-An opt-in read-only BOLA comparison is available with `--bola-config`. Supply a local JSON file containing two distinct authorized test tokens, one known object URL, a dotted JSON owner field, and the expected owner value. The comparison issues exactly two GET requests, rejects cross-origin object URLs, and does not save tokens or response bodies. Example shape (replace all values with controlled test credentials and object data):
+An opt-in read-only BOLA verification is available with `--bola-config`. Supply an explicit list of test identities and known object cases. Every identity has a read-only identity endpoint and expected identity marker. Every object case has a known owner marker and a role access matrix containing both an allowed positive-control role and a denied negative-control role. Only listed identity and object URLs are requested; IDs are never enumerated.
 
 ```json
 {
-  "authorized_token": "<owner-test-token>",
-  "unauthorized_token": "<second-test-token>",
-  "object_url": "http://127.0.0.1:8001/items/known-test-object",
-  "owner_json_path": "owner.id",
-  "expected_owner": "test-user-1"
+  "identities": [
+    {
+      "id": "owner-test",
+      "role": "owner",
+      "token": "<owner-test-token>",
+      "identity_url": "http://127.0.0.1:8001/me",
+      "identity_json_path": "id",
+      "expected_identity": "test-user-1"
+    },
+    {
+      "id": "viewer-test",
+      "role": "viewer",
+      "token": "<viewer-test-token>",
+      "identity_url": "http://127.0.0.1:8001/me",
+      "identity_json_path": "id",
+      "expected_identity": "test-user-2"
+    }
+  ],
+  "objects": [
+    {
+      "case_id": "invoice-1-owner-policy",
+      "object_type": "invoice",
+      "object_url": "http://127.0.0.1:8001/invoices/known-test-object",
+      "owner_json_path": "owner.id",
+      "expected_owner": "test-user-1",
+      "access_rules": {"owner": "allow", "viewer": "deny"}
+    }
+  ]
 }
 ```
 
-Keep this file out of Git and restrict its filesystem permissions. `authorized_token` must belong to the known owner; `unauthorized_token` must be a separate test identity that is authorized for testing but is expected not to access this object. A confirmed result requires the authorized identity to return the configured owner marker and the second identity to return that same marker. Missing ground truth or an incomplete comparison produces an inconclusive result.
+Keep this file out of Git and restrict its filesystem permissions. All identity and object URLs must share the target origin. Configs allow up to 20 identities and 50 object cases; each case requires at least one `allow` and one `deny` role, and an allowed identity must match the configured owner marker. Each configured identity is independently authenticated before the object requests. All requests use GET, redirects are not followed, tokens and response bodies are not retained, and 401, unexpected status codes, missing ownership data, and other ambiguous outcomes are inconclusive. The legacy one-object config remains readable as one explicit case. This verifies only listed objects, identities, roles, and rules; it does not establish general BOLA coverage.
 
 The 0–100 score is a deterministic severity-weighted risk indicator: critical/high/medium/low findings use documented penalties in `scanner/scoring.py`, capped per severity group and at the 0–100 range. It is not a security certification. In particular, a high score or empty report does not establish that an API is secure; endpoint discovery may be incomplete and many controls are untested.
 
@@ -111,13 +152,21 @@ uvicorn web.app:app --host 127.0.0.1 --port 8000
 
 Set the CIDR variable in the window that runs the scanner or dashboard. If the variable is unset, the local demo's loopback address is blocked by the outbound policy.
 
-Open `http://127.0.0.1:8000`. The dashboard supports scan submission, history, scan detail, comparisons, and JSON/HTML/PDF exports. SQLite is initialized on application startup and local history is stored under `data/scanner.db`.
+Open `http://127.0.0.1:8000` and sign in with the configured account. The dashboard supports scan submission, history, scan detail, comparisons, and JSON/HTML/PDF/SARIF exports. SQLite is initialized on application startup and local history is stored under `data/scanner.db`.
 
-The dashboard has no user authentication and is enforced as loopback-only. It rejects non-loopback clients, cross-site scan submissions, targets that are not literal loopback IP URLs, and overlapping or excessive scan submissions. It does not support remote access, reverse-proxy access, or a hostname allowlist. Keep it bound to `127.0.0.1`; do not expose it through a reverse proxy or public interface. The scanner's outbound address policy remains in force for dashboard scans.
+The dashboard uses signed, expiring cookie sessions and CSRF tokens. Configure `API_SCANNER_DASHBOARD_USERNAME`, `API_SCANNER_DASHBOARD_PASSWORD` (at least 12 characters), and `API_SCANNER_DASHBOARD_SESSION_SECRET` (at least 32 characters) before starting it. Missing or malformed credentials fail closed. Login and scan submissions are rate limited. Keep it bound to `127.0.0.1`; remote access remains unsupported and disabled. Do not expose it through a reverse proxy or public interface. The scanner's outbound address policy remains in force for dashboard scans.
+
+```powershell
+$env:API_SCANNER_DASHBOARD_USERNAME = 'scanner-admin'
+$env:API_SCANNER_DASHBOARD_PASSWORD = '<set from a secret manager>'
+$env:API_SCANNER_DASHBOARD_SESSION_SECRET = '<long random secret>'
+$env:API_SCANNER_DASHBOARD_HTTPS = '0' # set to 1 only when serving HTTPS directly
+uvicorn web.app:app --host 127.0.0.1 --port 8000
+```
 
 ## Reports
 
-Supported formats are terminal output plus JSON, standalone HTML, and PDF. HTML and PDF escape untrusted report text. Finding evidence and URL query values with common secret names are redacted, but reports and database history still contain target and finding information and should be handled as sensitive. SARIF is not implemented.
+Supported formats are terminal output plus JSON, standalone HTML, PDF, and SARIF 2.1.0. HTML and PDF escape untrusted report text. SARIF preserves rule IDs, severity, confidence, verification status, stable fingerprints, and reliable request URI locations. SARIF includes the scan's partial or interrupted status. It does not mean every heuristic finding has been verified. Finding evidence and URL query values with common secret names are redacted, but reports and database history still contain target and finding information and should be handled as sensitive. Tests validate SARIF documents against the OASIS 2.1.0 schema fixture in `tests/data/`.
 
 ## Test and quality commands
 
@@ -134,16 +183,16 @@ Pytest's default temporary folder can be overridden in restricted Windows enviro
 python -m pytest -q --basetemp=.pytest-tmp
 ```
 
-CI runs tests on Python 3.12 and 3.13, imports the dashboard, runs Ruff lint, and audits dependencies. Release automation generates sample HTML/PDF reports after tests. Local command results do not imply that a remote GitHub Actions workflow has run.
+CI runs tests on Python 3.12 and 3.13, imports the dashboard, checks installed dependencies, runs Ruff lint and format checks, and audits dependencies. Release automation runs those checks before generating sample HTML/PDF reports. Local command results do not imply that a remote GitHub Actions workflow has run.
 
 ## Limitations and responsible use
 
-- The BOLA comparison only tests one configured object and two supplied identities; it does not establish general authorization correctness.
+- BOLA verification covers only the configured objects, supplied identities, roles, and access matrix. It does not establish general authorization correctness or detect unlisted object identifiers.
 - No general authorization verification, business-logic proof, exploit payloads, or destructive testing.
 - No unrestricted crawling or endpoint guessing; fallback discovery covers only the base URL.
 - Public global addresses are allowed by default when explicitly supplied as targets; this is not a hostname allowlist. Use the scanner only for authorized systems. Private/internal destinations require a narrowly scoped `API_SCANNER_ALLOWED_CIDRS` exception.
-- Hostname resolution uses the system resolver in bounded worker threads; a resolver implementation that remains stuck in the operating system may outlive a timed-out lookup. Use network egress controls on shared hosts.
-- The dashboard is local-only and has no account authentication; other local users may access it. Use OS account isolation where local multi-user access is a concern.
+- Hostname resolution and HTTP worker submissions use fixed pools with bounded queues and absolute request deadlines. A resolver stuck in the operating system retains one bounded slot until it returns; additional work fails closed. Application checks do not replace OS or network egress restrictions.
+- The dashboard is local-only. Remote deployment is unsupported; authentication does not make public exposure safe. Use OS account isolation where local multi-user access is a concern.
 - The scanner does not replace manual testing, code review, threat modeling, or a professional assessment.
 
 ## Demo API

@@ -3,11 +3,15 @@ import ipaddress
 import threading
 import time
 import json
+import hmac
+import os
+import secrets
 from datetime import datetime, timezone
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Form, HTTPException, Query, Response
+from fastapi import FastAPI, Request, Form, HTTPException, Query, Response, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from urllib.parse import urlparse
@@ -19,6 +23,7 @@ from scanner.history import save_scan, get_all_scans, get_scan_by_id, compare_sc
 from scanner.reports.json_report import generate_json_report
 from scanner.reports.html_report import generate_html_report
 from scanner.reports.pdf_report import generate_pdf_report
+from scanner.reports.sarif_report import generate_sarif_report
 from scanner.validation import validate_target_url, InvalidURLError
 from scanner.redaction import redact_text, redact_url
 
@@ -130,6 +135,46 @@ app = FastAPI(
     description="OWASP API Security Scanner for Developers",
     lifespan=lifespan,
 )
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("API_SCANNER_DASHBOARD_SESSION_SECRET") or secrets.token_urlsafe(48),
+    session_cookie="api_scanner_session",
+    max_age=1800,
+    same_site="strict",
+    https_only=os.getenv("API_SCANNER_DASHBOARD_HTTPS", "0") == "1",
+)
+
+_login_attempts: dict[str, deque[float]] = defaultdict(deque)
+_login_rate_lock = threading.Lock()
+
+
+def _auth_configured() -> bool:
+    username = os.getenv("API_SCANNER_DASHBOARD_USERNAME", "")
+    password = os.getenv("API_SCANNER_DASHBOARD_PASSWORD", "")
+    session_secret = os.getenv("API_SCANNER_DASHBOARD_SESSION_SECRET", "")
+    return bool(
+        username
+        and len(username) <= 128
+        and len(password) >= 12
+        and len(password) <= 1024
+        and len(session_secret) >= 32
+    )
+
+
+def require_auth(request: Request):
+    issued = request.session.get("authenticated_at")
+    if not _auth_configured() or not isinstance(issued, int) or int(time.time()) - issued > 1800:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+
+async def require_csrf(request: Request):
+    require_auth(request)
+    token = request.headers.get("x-csrf-token")
+    if not token:
+        form = await request.form()
+        token = str(form.get("csrf_token", ""))
+    if not token or not hmac.compare_digest(token, str(request.session.get("csrf_token", ""))):
+        raise HTTPException(status_code=403, detail="CSRF validation failed.")
 
 
 @app.middleware("http")
@@ -169,6 +214,8 @@ async def enforce_local_dashboard(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+    if request.url.path == "/login" and request.method == "POST" and response.status_code < 400:
+        response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 
@@ -186,18 +233,66 @@ templates = Jinja2Templates(
 @app.get(
     "/",
     response_class=HTMLResponse,
+    dependencies=[Depends(require_auth)],
 )
 def home(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={},
+        context={"csrf_token": request.session.get("csrf_token", "")},
     )
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    if not request.session.get("csrf_token"):
+        request.session["csrf_token"] = secrets.token_urlsafe(32)
+    csrf_token = request.session["csrf_token"]
+    return HTMLResponse(f"""<!doctype html><title>API Scanner Login</title><form method='post'>
+      <input type='hidden' name='csrf_token' value='{csrf_token}'>
+      <label>Username <input name='username' autocomplete='username' required></label>
+      <label>Password <input type='password' name='password' autocomplete='current-password' required></label>
+      <button type='submit'>Sign in</button></form>""")
+
+
+@app.post("/login")
+def login(request: Request, username: str = Form(...), password: str = Form(...), csrf_token: str = Form(...)):
+    current_csrf = str(request.session.get("csrf_token", ""))
+    if not current_csrf or not hmac.compare_digest(csrf_token, current_csrf):
+        return HTMLResponse("Login request rejected.", status_code=403, headers={"Cache-Control": "no-store"})
+    host = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    with _login_rate_lock:
+        recent = _login_attempts[host]
+        while recent and now - recent[0] > 60:
+            recent.popleft()
+        if len(recent) >= 5:
+            return HTMLResponse("Login rate limit reached.", status_code=429)
+        recent.append(now)
+    expected_user = os.getenv("API_SCANNER_DASHBOARD_USERNAME", "")
+    expected_password = os.getenv("API_SCANNER_DASHBOARD_PASSWORD", "")
+    user_matches = hmac.compare_digest(username, expected_user)
+    password_matches = hmac.compare_digest(password, expected_password)
+    valid = _auth_configured() & user_matches & password_matches
+    if not valid:
+        return HTMLResponse("Invalid credentials.", status_code=401, headers={"Cache-Control": "no-store"})
+    request.session.clear()
+    request.session["authenticated_at"] = int(time.time())
+    request.session["csrf_token"] = secrets.token_urlsafe(32)
+    response = Response(status_code=303, headers={"Location": "/", "Cache-Control": "no-store"})
+    return response
+
+
+@app.post("/logout", dependencies=[Depends(require_csrf)])
+def logout(request: Request):
+    request.session.clear()
+    return Response(status_code=303, headers={"Location": "/login", "Cache-Control": "no-store"})
 
 
 @app.post(
     "/scan",
     response_class=HTMLResponse,
+    dependencies=[Depends(require_csrf)],
 )
 def run_scan(
     request: Request,
@@ -212,6 +307,7 @@ def run_scan(
             request=request,
             name="index.html",
             context={
+                "csrf_token": request.session.get("csrf_token", ""),
                 "selected_url": redact_url(url) or "",
                 "selected_mode": mode,
                 "error": str(e),
@@ -223,6 +319,7 @@ def run_scan(
             request=request,
             name="index.html",
             context={
+                "csrf_token": request.session.get("csrf_token", ""),
                 "selected_url": redact_url(url) or "",
                 "selected_mode": mode,
                 "error": "Dashboard scans are restricted to loopback targets. Remote dashboard scanning is disabled.",
@@ -237,6 +334,7 @@ def run_scan(
             request=request,
             name="index.html",
             context={
+                "csrf_token": request.session.get("csrf_token", ""),
                 "selected_url": redact_url(url) or "",
                 "selected_mode": mode,
                 "error": (f"Invalid scan mode '{mode}'. Use 'passive' or 'active'."),
@@ -254,6 +352,7 @@ def run_scan(
             request=request,
             name="index.html",
             context={
+                "csrf_token": request.session.get("csrf_token", ""),
                 "selected_url": redact_url(url) or "",
                 "selected_mode": mode,
                 "error": "Another scan is already running.",
@@ -275,6 +374,7 @@ def run_scan(
             request=request,
             name="index.html",
             context={
+                "csrf_token": request.session.get("csrf_token", ""),
                 "selected_url": redact_url(url) or "",
                 "selected_mode": mode,
                 "error": ("The scan could not be completed. Please verify the target and try again."),
@@ -301,6 +401,7 @@ def run_scan(
         request=request,
         name="index.html",
         context={
+            "csrf_token": request.session.get("csrf_token", ""),
             "result": result,
             "selected_url": redact_url(url) or "",
             "selected_mode": mode,
@@ -314,6 +415,7 @@ def run_scan(
 @app.get(
     "/history",
     response_class=HTMLResponse,
+    dependencies=[Depends(require_auth)],
 )
 def view_history(request: Request):
     scans = get_all_scans()
@@ -331,6 +433,7 @@ def view_history(request: Request):
 @app.get(
     "/history/{scan_id}",
     response_class=HTMLResponse,
+    dependencies=[Depends(require_auth)],
 )
 def view_scan_details(request: Request, scan_id: int):
     scan_record = get_scan_by_id(scan_id)
@@ -352,7 +455,7 @@ def view_scan_details(request: Request, scan_id: int):
     )
 
 
-@app.get("/history/{scan_id}/export/{export_format}")
+@app.get("/history/{scan_id}/export/{export_format}", dependencies=[Depends(require_auth)])
 def export_scan_report(scan_id: int, export_format: str):
     scan_record = get_scan_by_id(scan_id)
     if not scan_record:
@@ -385,16 +488,23 @@ def export_scan_report(scan_id: int, export_format: str):
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="scan_{scan_id}_report.json"'},
         )
+    elif fmt == "sarif":
+        sarif_content = generate_sarif_report(scan_result)
+        return Response(
+            content=sarif_content,
+            media_type="application/sarif+json",
+            headers={"Content-Disposition": f'attachment; filename="scan_{scan_id}_report.sarif"'},
+        )
     else:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid format '{export_format}'. Supported formats: pdf, html, json.",
+            status_code=400, detail=f"Invalid format '{export_format}'. Supported formats: pdf, html, json, sarif."
         )
 
 
 @app.get(
     "/compare",
     response_class=HTMLResponse,
+    dependencies=[Depends(require_auth)],
 )
 def compare_scans_route(
     request: Request,

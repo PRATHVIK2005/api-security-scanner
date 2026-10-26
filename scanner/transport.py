@@ -23,7 +23,9 @@ import httpx
 from scanner.validation import InvalidURLError, validate_target_url
 
 _DNS_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="scanner-dns")
+_DNS_CAPACITY = threading.BoundedSemaphore(8)  # four running calls and at most four queued calls
 _IO_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="scanner-http")
+_IO_CAPACITY = threading.BoundedSemaphore(8)  # bounded callers, active requests, and queue
 _ALWAYS_BLOCKED = {
     ipaddress.ip_address("169.254.169.254"),  # common cloud metadata IPv4
     ipaddress.ip_address("100.100.100.200"),  # Alibaba metadata IPv4
@@ -115,19 +117,42 @@ def _is_allowed(
 
 
 def _resolve(host: str, port: int, deadline: float, limits: TransportLimits, request: httpx.Request):
-    future = _DNS_POOL.submit(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM)
+    remaining = min(limits.dns_seconds, deadline - time.monotonic())
+    if remaining <= 0:
+        raise ScannerResourceError("DNS resolution exceeded its time limit", request=request)
+    if not _DNS_CAPACITY.acquire(timeout=remaining):
+        raise ScannerResourceError("DNS resolver capacity is exhausted", request=request)
+    if time.monotonic() >= deadline:
+        _DNS_CAPACITY.release()
+        raise ScannerResourceError("DNS resolution exceeded its time limit", request=request)
+    try:
+        future = _DNS_POOL.submit(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM)
+    except RuntimeError as exc:
+        _DNS_CAPACITY.release()
+        raise ScannerResourceError("DNS resolver is unavailable", request=request) from exc
+    # A timed-out OS resolver cannot always be cancelled. Retain its bounded slot
+    # until the worker actually finishes, preventing abandoned-work accumulation.
+    future.add_done_callback(lambda _future: _DNS_CAPACITY.release())
     try:
         records = future.result(timeout=min(limits.dns_seconds, max(0.001, deadline - time.monotonic())))
     except concurrent.futures.TimeoutError as exc:
         raise ScannerResourceError("DNS resolution exceeded its time limit", request=request) from exc
     except OSError as exc:
         raise TargetScopeError("DNS resolution failed", request=request) from exc
-    if len(records) > _MAX_DNS_ANSWERS:
+    try:
+        record_count = len(records)
+    except TypeError as exc:
+        raise TargetScopeError("DNS returned malformed address records", request=request) from exc
+    if record_count > _MAX_DNS_ANSWERS:
         raise ScannerResourceError("DNS returned more addresses than the configured safety limit", request=request)
     networks = _allowed_networks()
     answers = []
     unique = set()
-    for family, socktype, proto, _canonname, sockaddr in records:
+    for record in records:
+        try:
+            family, socktype, proto, _canonname, sockaddr = record
+        except (TypeError, ValueError) as exc:
+            raise TargetScopeError("DNS returned malformed address records", request=request) from exc
         try:
             address = _normalized_ip(sockaddr[0])
         except ValueError as exc:
@@ -171,12 +196,26 @@ class PeerCheckedTransport(httpx.BaseTransport):
                 self.failures.append(ScannerResourceError.__name__)
                 raise ScannerResourceError("Scan request-count limit reached", request=request)
             self.request_count += 1
-        future = _IO_POOL.submit(self._perform_request, request)
         request_timeout = (
             min(self.limits.total_seconds, remaining_scan) if remaining_scan is not None else self.limits.total_seconds
         )
+        request_deadline = time.monotonic() + request_timeout
+        if not _IO_CAPACITY.acquire(timeout=max(0, request_deadline - time.monotonic())):
+            error = ScannerResourceError("HTTP worker capacity is exhausted", request=request)
+            with self._request_lock:
+                self.failures.append(type(error).__name__)
+            raise error
+        if time.monotonic() >= request_deadline:
+            _IO_CAPACITY.release()
+            raise ScannerResourceError("Total request time limit reached", request=request)
         try:
-            return future.result(timeout=request_timeout)
+            future = _IO_POOL.submit(self._perform_request, request, request_deadline)
+        except RuntimeError as exc:
+            _IO_CAPACITY.release()
+            raise ScannerResourceError("HTTP worker pool is unavailable", request=request) from exc
+        future.add_done_callback(lambda _future: _IO_CAPACITY.release())
+        try:
+            return future.result(timeout=max(0, request_deadline - time.monotonic()))
         except concurrent.futures.TimeoutError as exc:
             with self._request_lock:
                 active_socket = self._active_sockets.pop(id(request), None)
@@ -199,7 +238,9 @@ class PeerCheckedTransport(httpx.BaseTransport):
             with self._request_lock:
                 self._active_sockets.pop(id(request), None)
 
-    def _perform_request(self, request: httpx.Request) -> httpx.Response:
+    def _perform_request(self, request: httpx.Request, deadline: float) -> httpx.Response:
+        if time.monotonic() >= deadline:
+            raise ScannerResourceError("Total request time limit reached", request=request)
         url = str(request.url)
         try:
             validate_target_url(url)
@@ -207,7 +248,6 @@ class PeerCheckedTransport(httpx.BaseTransport):
             raise TargetScopeError("Invalid target URL", request=request) from exc
         host = request.url.host
         port = request.url.port or (443 if request.url.scheme == "https" else 80)
-        deadline = time.monotonic() + self.limits.total_seconds
         if self.scan_deadline is not None:
             deadline = min(deadline, self.scan_deadline)
         answers = _resolve(host, port, deadline, self.limits, request)
@@ -220,15 +260,23 @@ class PeerCheckedTransport(httpx.BaseTransport):
             if remaining <= 0:
                 raise ScannerResourceError("Connection exceeded total request time", request=request)
             sock = socket.socket(family, socktype, proto)
+            with self._request_lock:
+                self._active_sockets[id(request)] = sock
             try:
                 sock.settimeout(min(self.limits.connect_seconds, remaining))
                 sock.connect(sockaddr)
+                if time.monotonic() >= deadline:
+                    raise ScannerResourceError("Connection exceeded total request time", request=request)
                 peer_ip = _normalized_ip(sock.getpeername()[0])
                 if peer_ip != approved_ip or not _is_allowed(peer_ip, _allowed_networks()):
                     raise TargetScopeError("Connected peer differs from the validated target address", request=request)
                 if request.url.scheme == "https":
                     tls_context = ssl.create_default_context()
                     sock = tls_context.wrap_socket(sock, server_hostname=host)
+                    with self._request_lock:
+                        self._active_sockets[id(request)] = sock
+                    if time.monotonic() >= deadline:
+                        raise ScannerResourceError("TLS connection exceeded total request time", request=request)
                     peer_ip = _normalized_ip(sock.getpeername()[0])
                     if peer_ip != approved_ip:
                         raise TargetScopeError("TLS peer differs from the validated target address", request=request)
@@ -238,7 +286,7 @@ class PeerCheckedTransport(httpx.BaseTransport):
                 with self._request_lock:
                     self._active_sockets[id(request)] = sock
                 break
-            except TargetScopeError:
+            except (TargetScopeError, ScannerResourceError):
                 sock.close()
                 raise
             except OSError as exc:

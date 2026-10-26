@@ -70,6 +70,10 @@
         <nav class="nav-links">
             <a href="/" class="nav-link active"><span class="nav-icon">⌬</span> New Scan</a>
             <a href="/history" class="nav-link"><span class="nav-icon">📜</span> Scan History</a>
+            <form action="/logout" method="post" class="nav-link">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit">Sign out</button>
+            </form>
         </nav>
 
         <div class="system-status">
@@ -115,6 +119,7 @@
         {% endif %}
 
         <form id="scan-form" action="/scan" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-grid">
                 <div class="form-group form-group-url">
                     <label for="input-url">

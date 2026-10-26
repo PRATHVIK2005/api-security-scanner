@@ -7,11 +7,12 @@ from scanner.db.models import Base
 from scanner.db.session import set_custom_engine
 from scanner.history import save_scan
 from scanner.models import ScanResult, Finding as PydanticFinding, Severity
-from web.app import app
+from web.app import app, _login_attempts
 
 
 @pytest.fixture(autouse=True)
 def isolated_db():
+    _login_attempts.clear()
     test_engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -26,8 +27,21 @@ def isolated_db():
 
 
 @pytest.fixture
-def client():
-    return TestClient(app, client=("127.0.0.1", 50001))
+def client(monkeypatch):
+    import re
+
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_USERNAME", "test-user")
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_PASSWORD", "test-password-only")
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_SESSION_SECRET", "test-session-secret-for-dashboard-1234567890")
+    test_client = TestClient(app, client=("127.0.0.1", 50001), follow_redirects=False)
+    login_page = test_client.get("/login")
+    login_csrf = re.search(r"name='csrf_token' value='([^']+)'", login_page.text).group(1)
+    test_client.post(
+        "/login", data={"username": "test-user", "password": "test-password-only", "csrf_token": login_csrf}
+    )
+    page = test_client.get("/")
+    test_client.headers["x-csrf-token"] = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
+    return test_client
 
 
 def create_saved_scan():
@@ -84,6 +98,14 @@ def test_export_json_route(client):
     data = response.json()
     assert data["target"] == "https://api.test.local"
     assert len(data["findings"]) == 1
+
+
+def test_export_sarif_route(client):
+    scan_record = create_saved_scan()
+    response = client.get(f"/history/{scan_record.id}/export/sarif")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/sarif+json")
+    assert '"version": "2.1.0"' in response.text
 
 
 def test_export_404_not_found(client):

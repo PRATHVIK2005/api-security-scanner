@@ -7,12 +7,13 @@ from sqlalchemy.pool import StaticPool
 from scanner.db.models import Base, Finding as FindingRecord, Scan
 from scanner.db.session import get_session_factory, set_custom_engine
 from scanner.models import Finding, ScanMode, ScanResult, Severity
-from web.app import app, _scan_times
+from web.app import app, _scan_times, _login_attempts
 
 
 @pytest.fixture(autouse=True)
 def isolated_db():
     _scan_times.clear()
+    _login_attempts.clear()
     test_engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -27,8 +28,23 @@ def isolated_db():
 
 
 @pytest.fixture
-def client():
-    return TestClient(app, client=("127.0.0.1", 50000), headers={"Origin": "http://testserver"})
+def client(monkeypatch):
+    import re
+
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_USERNAME", "test-user")
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_PASSWORD", "test-password-only")
+    monkeypatch.setenv("API_SCANNER_DASHBOARD_SESSION_SECRET", "test-session-secret-for-dashboard-1234567890")
+    test_client = TestClient(
+        app, client=("127.0.0.1", 50000), headers={"Origin": "http://testserver"}, follow_redirects=False
+    )
+    login_page = test_client.get("/login")
+    login_csrf = re.search(r"name='csrf_token' value='([^']+)'", login_page.text).group(1)
+    test_client.post(
+        "/login", data={"username": "test-user", "password": "test-password-only", "csrf_token": login_csrf}
+    )
+    page = test_client.get("/")
+    test_client.headers["x-csrf-token"] = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
+    return test_client
 
 
 def test_get_root_returns_200(client):

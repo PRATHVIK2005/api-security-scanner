@@ -9,6 +9,7 @@ from scanner.models import ScanMode, Severity
 from scanner.reports.json_report import generate_json_report
 from scanner.reports.html_report import generate_html_report
 from scanner.reports.pdf_report import generate_pdf_report
+from scanner.reports.sarif_report import generate_sarif_report
 from scanner.summary import count_findings_by_severity
 from scanner.validation import InvalidURLError
 from scanner.redaction import redact_text, redact_url
@@ -53,7 +54,7 @@ def scan_api(
     output_format: str = typer.Option(
         "terminal",
         "--format",
-        help="Output format: terminal, json, pdf, or html",
+        help="Output format: terminal, json, pdf, html, or sarif",
     ),
     output: Path | None = typer.Option(
         None,
@@ -66,7 +67,7 @@ def scan_api(
         None, "--endpoints", help="JSON/YAML endpoint list for APIs without OpenAPI"
     ),
     bola_config: Path | None = typer.Option(
-        None, "--bola-config", help="Opt-in JSON with two authorized test tokens and a known object owner marker"
+        None, "--bola-config", help="Opt-in JSON with explicit test identities, object owners, and role access rules"
     ),
 ):
     """Scan an API for security issues."""
@@ -83,8 +84,8 @@ def scan_api(
                 raise typer.Exit(code=1)
 
     format_normalized = output_format.lower().strip()
-    if format_normalized not in {"terminal", "json", "pdf", "html"}:
-        console.print("[bold red]Invalid format.[/bold red] Use 'terminal', 'json', 'pdf', or 'html'.")
+    if format_normalized not in {"terminal", "json", "pdf", "html", "sarif"}:
+        console.print("[bold red]Invalid format.[/bold red] Use terminal, json, pdf, html, or sarif.")
         raise typer.Exit(code=1)
 
     try:
@@ -134,6 +135,12 @@ def scan_api(
         target_path = output if output is not None else Path("report.pdf")
         generate_pdf_report(result, target_path)
         console.print(f"[green]PDF security report saved to {target_path}[/green]")
+        return
+
+    if format_normalized == "sarif":
+        target_path = output if output is not None else Path("report.sarif")
+        generate_sarif_report(result, target_path)
+        console.print(f"[green]SARIF report saved to {target_path}[/green]")
         return
 
     # 4. Terminal Report (default)
