@@ -1,494 +1,155 @@
-# 🔐 API Security Scanner
+# API Security Scanner
 
-An automated **OWASP API Security Scanner** designed to help developers identify common security weaknesses in REST APIs.
+A Python API assessment tool with a Typer CLI, a FastAPI dashboard, OpenAPI and manual endpoint discovery, SQLite scan history, and JSON, HTML, and PDF reports. The scanner performs bounded passive HTTP checks and a read-only active mode against APIs you own or are explicitly authorized to test.
 
-The scanner supports automated API endpoint discovery, passive and active security scanning, authenticated scans, security scoring, multiple report formats, scan history, and a web dashboard.
+> **Authorized use only.** Use the included local demo API or a controlled target. The scanner does not provide authorization to test a system. Do not scan public systems without written permission.
 
-> ⚠️ **Authorized Use Only:** Only scan APIs that you own or have explicit permission to test.
+## Architecture and data flow
 
----
+`cli/main.py` or `web/app.py` validates the target and passes it to `scanner/engine.py`. `scanner/discovery.py` first checks common OpenAPI locations (or a configured specification URL), then uses an optional user endpoint list, and otherwise scans only the base URL. Discovered operations flow through heuristic checks and bounded HTTP probes. Findings are deduplicated, scored, optionally saved in local SQLite, and rendered by the report generators.
 
-## 🚀 Features
-
-### 🔍 API Endpoint Discovery
-
-- Automatic OpenAPI/Swagger endpoint discovery
-- Supports common specification paths:
-  - `/openapi.json`
-  - `/swagger.json`
-  - `/api-docs`
-- Falls back to the provided URL when no API specification is found
-- Discovers supported HTTP methods
-- Detects authentication requirements from API specifications
-
----
-
-## 🛡️ Security Checks
-
-The scanner performs checks for multiple API security risks, including:
-
-- Missing authentication
-- Broken Object Level Authorization (BOLA) risks
-- Broken Object Property Level Authorization risks
-- Sensitive data exposure
-- JWT exposure
-- API key exposure
-- Token security issues
-- Overly permissive CORS policies
-- Missing security headers
-- Server technology information disclosure
-- Exposed administrative endpoints
-- Exposed debug endpoints
-- Deprecated API endpoints
-- Outdated API versions
-- Missing rate limiting
-- Active rate-limiting testing
-- Unsafe API consumption
-- SSRF-related risks
-- Input validation issues
-- Business flow risks
-
----
-
-# 🔄 Scan Modes
-
-## Passive Mode
-
-Passive mode performs non-destructive security checks using safe HTTP requests.
-
-```bash
-api-scanner scan --url http://127.0.0.1:8000
-````
-
----
-
-## Active Mode
-
-Active mode performs additional security testing.
-
-```bash
-api-scanner scan --url http://127.0.0.1:8000 --mode active
-```
-
-> ⚠️ Active scanning should only be used against APIs you own or are authorized to test.
-
----
-
-# 🔑 Authenticated Scanning
-
-The scanner supports Bearer token authentication.
-
-```bash
-api-scanner scan \
-  --url http://127.0.0.1:8000 \
-  --token YOUR_BEARER_TOKEN
-```
-
-This allows security testing of protected API endpoints.
-
----
-
-# 📦 Installation
-
-## 1. Clone the Repository
-
-```bash
-git clone https://github.com/PRATHVIK2005/api-security-scanner.git
-cd api-security-scanner
-```
-
----
-
-## 2. Create a Virtual Environment
-
-### Windows PowerShell
+## Install (Windows PowerShell)
 
 ```powershell
-python -m venv venv
-venv\Scripts\Activate
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
-### Linux/macOS
+Python 3.10 or newer is required. Dependencies are declared in `pyproject.toml`; development dependencies include pytest, Ruff, and pip-audit.
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
+## CLI
+
+```powershell
+api-scanner --help
+api-scanner scan --help
+api-scanner scan --url http://127.0.0.1:8001
+api-scanner scan --url http://127.0.0.1:8001 --mode active
+api-scanner scan --url http://127.0.0.1:8001 --token $env:API_TOKEN --header "X-Workspace: demo"
+api-scanner scan --url http://127.0.0.1:8001 --format json --output .\scan.json
+api-scanner scan --url http://127.0.0.1:8001 --format html --output .\scan.html
+api-scanner scan --url http://127.0.0.1:8001 --format pdf --output .\scan.pdf
+api-scanner scan --url http://127.0.0.1:8001 --spec-url http://127.0.0.1:8001/openapi.json
+api-scanner scan --url http://127.0.0.1:8001 --endpoints .\endpoints.json
+api-scanner history
+api-scanner compare 1 2
 ```
 
----
+Use `python main.py` instead of `api-scanner` if the package has not been installed. Use `--header "Name: Value"` once per custom header. Credentials are accepted as request headers or a bearer token and are not intentionally printed or stored. Avoid putting credentials in URLs. Output files may contain target URLs and findings, so protect them as assessment data.
 
-## 3. Install Dependencies
+### Manual endpoint list
 
-```bash
-pip install -e .
+JSON and YAML endpoint files are supported. Each entry has a required `path`, optional `method` (defaults to GET), and optional descriptive metadata. The scanner accepts an array or an object containing an `endpoints` array.
+
+```json
+{
+  "endpoints": [
+    {"method": "GET", "path": "/health", "summary": "Health check"},
+    {"method": "GET", "path": "/users/{user_id}", "requires_auth": true}
+  ]
+}
 ```
 
-For development dependencies:
+Paths resolve against the supplied base URL. Absolute endpoint URLs must match the target origin. Only supported HTTP methods are accepted, duplicate method/path pairs are removed, and discovery is capped at 500 operations.
 
-```bash
-pip install -e ".[dev]"
+### Passive and active behavior
+
+Passive mode sends requests for GET, HEAD, and OPTIONS operations. Active mode adds a small fixed burst (five read-only requests) for the rate-limit indicator. Even if the specification lists POST, PUT, PATCH, or DELETE operations, the scanner does not send them. Redirects are not followed. The scanner uses a peer-checked direct transport, disables environment proxies and compressed responses, validates DNS answers before connecting, and verifies the connected peer IP.
+
+Requests default to public global IP destinations. For an explicitly authorized private test target, set a narrow CIDR before scanning; broad networks are rejected. Example for a local demo:
+
+```powershell
+$env:API_SCANNER_ALLOWED_CIDRS = '127.0.0.1/32'
 ```
 
----
+The scanner applies this policy to the target and OpenAPI requests. It does not follow redirects or fetch external `$ref` documents. It caps each response at 1 MB by default, request bodies at 64 KB, each scan at 5,000 requests, and total scan duration at 300 seconds. Limits can be adjusted with `API_SCANNER_CONNECT_TIMEOUT`, `API_SCANNER_READ_TIMEOUT`, `API_SCANNER_TOTAL_REQUEST_TIMEOUT`, `API_SCANNER_DNS_TIMEOUT`, `API_SCANNER_MAX_RESPONSE_BYTES`, `API_SCANNER_MAX_REQUEST_BYTES`, `API_SCANNER_MAX_REQUESTS_PER_SCAN`, and `API_SCANNER_MAX_SCAN_SECONDS`; values are validated and hard maxima apply. Compressed responses are refused to avoid unbounded decompression.
 
-# 💻 CLI Usage
+## Discovery and coverage
 
-## Basic Scan
+Common specification locations include `/openapi.json`, `/swagger.json`, `/api-docs`, `/v3/api-docs`, `/api/openapi.json`, and `/swagger/v1/swagger.json`. Use `--spec-url` for another same-origin location. A 404 at one location does not stop the remaining probes. Each attempt records an HTTP status, redirect refusal, malformed document, or empty-spec outcome in scan metadata. If no usable spec is found, fallback mode scans only the base URL and marks coverage as incomplete.
 
-```bash
-api-scanner scan --url http://127.0.0.1:8000
+OpenAPI parsing retains methods, path and operation parameters, JSON request/response schemas, tags, deprecation, operation identifiers, and security metadata. External `$ref` documents are not resolved. OpenAPI callbacks/webhooks and server URL overrides are not followed.
+
+## Checks and interpretation
+
+Checks inspect authentication declarations, object identifiers, writable and returned properties, sensitive response patterns, token-like response content, CORS, security headers, information disclosure, rate-limit headers, selected sensitive path names, deprecated/versioned routes, SSRF-like input names, third-party integration indicators, and dangerous methods. They are partial indicators aligned with selected OWASP API Security Top 10 themes, not complete category coverage.
+
+Most checks are heuristic. An object ID does not prove BOLA; a missing rate-limit header does not prove the absence of server-side throttling; an input named `url` does not prove SSRF; a sensitive-looking path does not prove broken function authorization. Findings carry confidence and verification status; review them in application context.
+
+An opt-in read-only BOLA comparison is available with `--bola-config`. Supply a local JSON file containing two distinct authorized test tokens, one known object URL, a dotted JSON owner field, and the expected owner value. The comparison issues exactly two GET requests, rejects cross-origin object URLs, and does not save tokens or response bodies. Example shape (replace all values with controlled test credentials and object data):
+
+```json
+{
+  "authorized_token": "<owner-test-token>",
+  "unauthorized_token": "<second-test-token>",
+  "object_url": "http://127.0.0.1:8001/items/known-test-object",
+  "owner_json_path": "owner.id",
+  "expected_owner": "test-user-1"
+}
 ```
 
-Example output:
+Keep this file out of Git and restrict its filesystem permissions. `authorized_token` must belong to the known owner; `unauthorized_token` must be a separate test identity that is authorized for testing but is expected not to access this object. A confirmed result requires the authorized identity to return the configured owner marker and the second identity to return that same marker. Missing ground truth or an incomplete comparison produces an inconclusive result.
 
-```text
-API Security Scan Results
+The 0–100 score is a deterministic severity-weighted risk indicator: critical/high/medium/low findings use documented penalties in `scanner/scoring.py`, capped per severity group and at the 0–100 range. It is not a security certification. In particular, a high score or empty report does not establish that an API is secure; endpoint discovery may be incomplete and many controls are untested.
 
-Target: http://127.0.0.1:8000
-Discovery Source: OpenAPI
-Endpoints Scanned: 10
-Unreachable: 0
-Findings: 67
+## Dashboard and history
 
-Security Score: 0.0/100
-Risk Level: CRITICAL
+Start the local demo API and dashboard in separate PowerShell windows:
+
+```powershell
+$env:API_SCANNER_ALLOWED_CIDRS = '127.0.0.1/32'
+uvicorn demo_api.main:app --host 127.0.0.1 --port 8001
 ```
 
----
+In a second PowerShell window:
 
-## Active Scan
-
-```bash
-api-scanner scan \
-  --url http://127.0.0.1:8000 \
-  --mode active
+```powershell
+$env:API_SCANNER_ALLOWED_CIDRS = '127.0.0.1/32'
+uvicorn web.app:app --host 127.0.0.1 --port 8000
 ```
 
----
+Set the CIDR variable in the window that runs the scanner or dashboard. If the variable is unset, the local demo's loopback address is blocked by the outbound policy.
 
-## Authenticated Scan
+Open `http://127.0.0.1:8000`. The dashboard supports scan submission, history, scan detail, comparisons, and JSON/HTML/PDF exports. SQLite is initialized on application startup and local history is stored under `data/scanner.db`.
 
-```bash
-api-scanner scan \
-  --url http://127.0.0.1:8000 \
-  --token YOUR_BEARER_TOKEN
+The dashboard has no user authentication and is enforced as loopback-only. It rejects non-loopback clients, cross-site scan submissions, targets that are not literal loopback IP URLs, and overlapping or excessive scan submissions. It does not support remote access, reverse-proxy access, or a hostname allowlist. Keep it bound to `127.0.0.1`; do not expose it through a reverse proxy or public interface. The scanner's outbound address policy remains in force for dashboard scans.
+
+## Reports
+
+Supported formats are terminal output plus JSON, standalone HTML, and PDF. HTML and PDF escape untrusted report text. Finding evidence and URL query values with common secret names are redacted, but reports and database history still contain target and finding information and should be handled as sensitive. SARIF is not implemented.
+
+## Test and quality commands
+
+```powershell
+python -m pytest -q
+ruff check .
+ruff format --check .
+pip-audit
 ```
 
----
+Pytest's default temporary folder can be overridden in restricted Windows environments:
 
-# 📊 Report Formats
-
-## Terminal Report
-
-```bash
-api-scanner scan --url http://127.0.0.1:8000
+```powershell
+python -m pytest -q --basetemp=.pytest-tmp
 ```
 
----
+CI runs tests on Python 3.12 and 3.13, imports the dashboard, runs Ruff lint, and audits dependencies. Release automation generates sample HTML/PDF reports after tests. Local command results do not imply that a remote GitHub Actions workflow has run.
 
-## JSON Report
+## Limitations and responsible use
 
-```bash
-api-scanner scan \
-  --url http://127.0.0.1:8000 \
-  --format json
-```
+- The BOLA comparison only tests one configured object and two supplied identities; it does not establish general authorization correctness.
+- No general authorization verification, business-logic proof, exploit payloads, or destructive testing.
+- No unrestricted crawling or endpoint guessing; fallback discovery covers only the base URL.
+- Public global addresses are allowed by default when explicitly supplied as targets; this is not a hostname allowlist. Use the scanner only for authorized systems. Private/internal destinations require a narrowly scoped `API_SCANNER_ALLOWED_CIDRS` exception.
+- Hostname resolution uses the system resolver in bounded worker threads; a resolver implementation that remains stuck in the operating system may outlive a timed-out lookup. Use network egress controls on shared hosts.
+- The dashboard is local-only and has no account authentication; other local users may access it. Use OS account isolation where local multi-user access is a concern.
+- The scanner does not replace manual testing, code review, threat modeling, or a professional assessment.
 
-Save the report to a file:
+## Demo API
 
-```bash
-api-scanner scan \
-  --url http://127.0.0.1:8000 \
-  --format json \
-  --output report.json
-```
+The included `demo_api` application is intentionally vulnerable and should remain bound to loopback. Set `API_SCANNER_ALLOWED_CIDRS=127.0.0.1/32` in the scanner's PowerShell window, run `uvicorn demo_api.main:app --host 127.0.0.1 --port 8001` in another window, then scan `http://127.0.0.1:8001`.
 
----
+## Resume description (verified scope)
 
-## HTML Report
-
-The project supports generating HTML security reports.
-
----
-
-## PDF Report
-
-The project supports generating PDF security reports.
-
----
-
-# 🌐 Web Dashboard
-
-The project includes a FastAPI-based web dashboard.
-
-Run the application:
-
-```bash
-uvicorn web.app:app --reload
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8000
-```
-
-The dashboard allows you to:
-
-* Enter an API URL
-* Select passive or active scan mode
-* Perform authenticated scans
-* Start security scans
-* View security findings
-* View severity information
-* View security scores
-* Export reports
-* View scan history
-
----
-
-# 📈 Security Score
-
-The scanner calculates a security score based on the detected findings and their severity.
-
-```text
-0 ─────────────────────────────── 100
-Critical                           Secure
-```
-
-Example:
-
-```text
-Security Score: 18.0/100
-Risk Level: CRITICAL
-```
-
----
-
-# 🚨 Severity Levels
-
-| Severity    | Description                        |
-| ----------- | ---------------------------------- |
-| 🔴 CRITICAL | Immediate and severe security risk |
-| 🟠 HIGH     | Significant security vulnerability |
-| 🟡 MEDIUM   | Important security weakness        |
-| 🔵 LOW      | Lower-risk security issue          |
-| ℹ️ INFO     | Informational finding              |
-
----
-
-# 🛡️ OWASP API Security Coverage
-
-The scanner includes automated checks related to major OWASP API security risks.
-
-Current coverage includes areas such as:
-
-* API authorization weaknesses
-* Authentication weaknesses
-* Object-level access risks
-* Object property authorization risks
-* Resource consumption and rate limiting
-* Sensitive business flow risks
-* SSRF-related risks
-* Security misconfiguration
-* Unsafe API consumption
-
-> **Note:** Not every API vulnerability can be reliably detected automatically. Some security issues require manual testing, application-specific context, and professional security review.
-
----
-
-# 📁 Project Structure
-
-```text
-api-security-scanner/
-│
-├── scanner/
-│   ├── checks/
-│   │   ├── active_rate_limiting.py
-│   │   ├── api_versioning.py
-│   │   ├── authentication.py
-│   │   ├── bola.py
-│   │   ├── business_flow.py
-│   │   ├── cors.py
-│   │   ├── exposed_endpoints.py
-│   │   ├── information_disclosure.py
-│   │   ├── misconfiguration.py
-│   │   ├── object_property_authorization.py
-│   │   ├── rate_limiting.py
-│   │   ├── sensitive_data.py
-│   │   ├── ssrf.py
-│   │   ├── token_security.py
-│   │   ├── unsafe_api_consumption.py
-│   │   └── validation.py
-│   │
-│   ├── reports/
-│   │   ├── html_report.py
-│   │   ├── json_report.py
-│   │   └── pdf_report.py
-│   │
-│   ├── engine.py
-│   ├── discovery.py
-│   ├── models.py
-│   ├── scoring.py
-│   ├── history.py
-│   ├── knowledge.py
-│   ├── deduplication.py
-│   └── summary.py
-│
-├── web/
-│   ├── static/
-│   ├── templates/
-│   └── app.py
-│
-├── tests/
-├── demo_api/
-├── pyproject.toml
-├── README.md
-└── .gitignore
-```
-
----
-
-# 🧪 Testing
-
-The project includes a comprehensive automated test suite.
-
-Run all tests:
-
-```bash
-pytest
-```
-
-### Latest Test Result
-
-```text
-133 passed in 3.32s
-```
-
-The test suite covers:
-
-* Security checks
-* Endpoint discovery
-* Scan engine behavior
-* Passive scanning
-* Active scanning
-* Authenticated scanning
-* CLI functionality
-* JSON reports
-* HTML reports
-* PDF reports
-* Security scoring
-* Scan history
-* Web dashboard integration
-* Web exports
-
----
-
-# 🧪 Demo API
-
-The repository includes a deliberately vulnerable demo API for testing the scanner.
-
-Run the demo API:
-
-```bash
-uvicorn demo_api.main:app --reload
-```
-
-Then scan it:
-
-```bash
-api-scanner scan --url http://127.0.0.1:8000
-```
-
-The demo API intentionally contains insecure configurations and vulnerable endpoints for testing purposes.
-
-> ⚠️ Do not use the demo API as a production security example.
-
----
-
-# ⚠️ Limitations
-
-This project is designed to assist developers with automated API security testing.
-
-It does not replace:
-
-* Manual penetration testing
-* Security code review
-* Threat modeling
-* Professional security assessments
-
-Some vulnerabilities require application-specific business context and cannot be reliably detected through automated HTTP scanning alone.
-
----
-
-# 🛠️ Technologies Used
-
-* Python
-* FastAPI
-* HTTPX
-* Pydantic
-* Typer
-* Rich
-* Jinja2
-* Pytest
-* ReportLab
-
----
-
-# 🔧 Development Workflow
-
-```bash
-# Activate the virtual environment
-venv\Scripts\Activate
-
-# Run all tests
-pytest
-
-# Run a CLI scan
-api-scanner scan --url http://127.0.0.1:8000
-
-# Run the web dashboard
-uvicorn web.app:app --reload
-```
-
----
-
-# 🤝 Contributing
-
-Contributions are welcome.
-
-To contribute:
-
-1. Fork the repository
-2. Create a new branch
-3. Make your changes
-4. Add or update tests
-5. Ensure all tests pass
-6. Submit a pull request
-
-Before submitting changes, run:
-
-```bash
-pytest
-```
-
----
-
-# ⚠️ Disclaimer
-
-This tool is intended for **educational, development, and authorized security testing purposes only**.
-
-Do not scan systems, APIs, or services without explicit permission from their owners.
-
-The developers of this project are not responsible for unauthorized use.
-
----
-
-# 👨‍💻 Author
-
-**Prathvik Shetty**
-
-### API Security Scanner
-
-**Automated API Security Testing for Developers**
-
+Built a Python API security scanner with OpenAPI/manual endpoint discovery, peer-checked bounded HTTP requests, passive and read-only active checks, heuristic OWASP API risk indicators, an opt-in two-identity BOLA comparison, CLI and loopback-only FastAPI interfaces, additive SQLite history migrations, and JSON/HTML/PDF reporting with redacted evidence.

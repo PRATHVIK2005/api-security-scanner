@@ -1,5 +1,6 @@
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
+import httpx
 
 from scanner.engine import scan, enrich_findings
 from scanner.discovery import discover_endpoints
@@ -8,9 +9,10 @@ from web.app import app
 
 
 def test_authenticated_scan_engine_headers():
-    with patch("scanner.engine.httpx.Client") as mock_client_cls, \
-         patch("scanner.engine.discover_endpoints") as mock_discover:
-
+    with (
+        patch("scanner.engine.create_scanner_client") as mock_client_cls,
+        patch("scanner.engine.discover_endpoints") as mock_discover,
+    ):
         mock_client = MagicMock()
         mock_client_cls.return_value.__enter__.return_value = mock_client
         mock_discover.return_value = MagicMock(endpoints=[], source="None", specification_url=None)
@@ -23,7 +25,7 @@ def test_authenticated_scan_engine_headers():
         )
 
         mock_client_cls.assert_called_once()
-        _, kwargs = mock_client_cls.call_args
+        kwargs = mock_client_cls.call_args.kwargs
         client_headers = kwargs.get("headers", {})
 
         # Verify Authorization: Bearer token is properly set
@@ -32,7 +34,10 @@ def test_authenticated_scan_engine_headers():
         assert client_headers.get("X-Custom-API-Key") == "my-secret-key"
 
         # Verify discover_endpoints received the client headers
-        mock_discover.assert_called_once_with("http://127.0.0.1:8000", headers=client_headers)
+        mock_discover.assert_called_once()
+        assert mock_discover.call_args.args == ("http://127.0.0.1:8000",)
+        assert mock_discover.call_args.kwargs["headers"] == client_headers
+        assert mock_discover.call_args.kwargs["client"] is not None
 
         # Verify token and secrets are NOT stored or exposed in ScanResult
         assert "secret-jwt-token-xyz" not in str(result.model_dump())
@@ -40,18 +45,19 @@ def test_authenticated_scan_engine_headers():
 
 
 def test_discover_endpoints_passes_headers():
-    with patch("scanner.discovery.httpx.get") as mock_get:
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"paths": {}}
-        mock_get.return_value = mock_resp
+    with patch("scanner.discovery.create_scanner_client") as make_client:
+        mock_client = MagicMock()
+        make_client.return_value.__enter__.return_value = mock_client
+        mock_resp = httpx.Response(
+            200, json={"paths": {}}, request=httpx.Request("GET", "http://127.0.0.1:8000/openapi.json")
+        )
+        mock_client.get.return_value = mock_resp
 
         auth_headers = {"Authorization": "Bearer test-token-123"}
         result = discover_endpoints("http://127.0.0.1:8000", headers=auth_headers)
 
-        mock_get.assert_called()
-        call_kwargs = mock_get.call_args.kwargs
-        assert call_kwargs.get("headers") == auth_headers
+        mock_client.get.assert_called()
+        assert make_client.call_args.kwargs.get("headers") == auth_headers
 
 
 def test_enrich_findings_preserves_existing_data():
@@ -73,9 +79,10 @@ def test_enrich_findings_preserves_existing_data():
 
 
 def test_web_scan_does_not_leak_bearer_token():
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50003), headers={"Origin": "http://testserver"})
     with patch("web.app.scan") as mock_scan:
         from scanner.models import ScanResult
+
         mock_scan.return_value = ScanResult(
             target="http://127.0.0.1:8000",
             endpoints_scanned=1,
@@ -100,7 +107,7 @@ def test_web_scan_does_not_leak_bearer_token():
 
 
 def test_web_scan_url_scheme_validation():
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50004), headers={"Origin": "http://testserver"})
     response = client.post(
         "/scan",
         data={
@@ -110,4 +117,3 @@ def test_web_scan_url_scheme_validation():
     )
     assert response.status_code == 200
     assert "Invalid URL. Only http:// and https:// targets are supported." in response.text
-

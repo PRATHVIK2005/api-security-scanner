@@ -46,12 +46,7 @@ def test_jwt_exposure():
 
     response = httpx.Response(
         200,
-        text=(
-            '{"token": '
-            '"eyJhbGciOiJIUzI1NiJ9.'
-            'eyJ1c2VyIjoxfQ.'
-            'exampleSignature"}'
-        ),
+        text=('{"token": "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoxfQ.exampleSignature"}'),
     )
 
     findings = check_sensitive_data(
@@ -66,10 +61,7 @@ def test_debug_information_exposure():
 
     response = httpx.Response(
         500,
-        text=(
-            "Traceback (most recent call last):\n"
-            'File "app.py", line 42'
-        ),
+        text=('Traceback (most recent call last):\nFile "app.py", line 42'),
     )
 
     findings = check_sensitive_data(
@@ -78,9 +70,7 @@ def test_debug_information_exposure():
     )
 
     assert len(findings) == 1
-    assert findings[0].title == (
-        "Potential Debug Information Exposure"
-    )
+    assert findings[0].title == ("Potential Debug Information Exposure")
 
 
 def test_safe_response():

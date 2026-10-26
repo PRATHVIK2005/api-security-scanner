@@ -7,13 +7,12 @@ from typer.testing import CliRunner
 from cli.main import app
 from scanner.models import Finding, ScanResult, Severity
 
-ANSI_ESCAPE = re.compile(
-    r"\x1b\[[0-9;]*m"
-)
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE.sub("", text)
+
 
 runner = CliRunner()
 

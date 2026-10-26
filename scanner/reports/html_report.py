@@ -1,6 +1,7 @@
 """Standalone HTML report generator for API Security Scanner."""
 
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 from scanner.models import ScanResult, Severity
 from scanner.summary import count_findings_by_severity
@@ -56,26 +57,23 @@ def generate_html_report(
     findings_html = ""
     if sorted_findings:
         for idx, finding in enumerate(sorted_findings, 1):
-            sev = (
-                finding.severity.value
-                if hasattr(finding.severity, "value")
-                else str(finding.severity).upper()
-            )
+            sev = finding.severity.value if hasattr(finding.severity, "value") else str(finding.severity).upper()
             sev_class = f"sev-{sev.lower()}"
 
-            owasp_badge = (
-                f'<span class="badge owasp-badge">{finding.owasp}</span>'
-                if finding.owasp
-                else ""
-            )
+            owasp_badge = f'<span class="badge owasp-badge">{escape(finding.owasp)}</span>' if finding.owasp else ""
             desc_html = (
-                f'<div class="finding-block"><strong>VULNERABILITY DESCRIPTION:</strong><p>{finding.description}</p></div>'
+                f'<div class="finding-block"><strong>VULNERABILITY DESCRIPTION:</strong><p>{escape(finding.description)}</p></div>'
                 if finding.description
                 else ""
             )
             recom_html = (
-                f'<div class="finding-block recom-block"><strong>ACTIONABLE RECOMMENDATION:</strong><p>{finding.recommendation}</p></div>'
+                f'<div class="finding-block recom-block"><strong>ACTIONABLE RECOMMENDATION:</strong><p>{escape(finding.recommendation)}</p></div>'
                 if finding.recommendation
+                else ""
+            )
+            evidence_html = (
+                f'<div class="finding-block"><strong>EVIDENCE ({escape(finding.verification_status)}; confidence {escape(finding.confidence)}):</strong><p>{escape(finding.evidence)}</p></div>'
+                if finding.evidence
                 else ""
             )
 
@@ -84,17 +82,18 @@ def generate_html_report(
                 <div class="finding-header">
                     <div class="badges">
                         <span class="badge {sev_class}">{sev}</span>
-                        <span class="badge method-badge">{finding.method or 'UNKNOWN'}</span>
+                        <span class="badge method-badge">{escape(finding.method or "UNKNOWN")}</span>
                         {owasp_badge}
                     </div>
                     <span class="finding-id">Finding #{idx}</span>
                 </div>
-                <h3 class="finding-title">{finding.title}</h3>
+                <h3 class="finding-title">{escape(finding.title)}</h3>
                 <div class="endpoint-box">
                     <span class="endpoint-label">ENDPOINT:</span>
-                    <code>{finding.endpoint}</code>
+                    <code>{escape(finding.endpoint)}</code>
                 </div>
                 {desc_html}
+                {evidence_html}
                 {recom_html}
             </div>
             """
@@ -102,8 +101,8 @@ def generate_html_report(
         findings_html = """
         <div class="no-findings-box">
             <div class="check-icon">🛡️</div>
-            <h3>Zero Vulnerabilities Detected</h3>
-            <p>Target API successfully satisfied all active and passive OWASP security checks.</p>
+            <h3>No Heuristic Findings Recorded</h3>
+            <p>No configured checks reported a finding. Discovery may be incomplete and this result does not establish that the API is secure.</p>
         </div>
         """
 
@@ -112,7 +111,7 @@ def generate_html_report(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API Security Assessment Report — {result.target}</title>
+    <title>API Security Assessment Report — {escape(result.target)}</title>
     <style>
         :root {{
             --bg: #0b1120;
@@ -427,7 +426,7 @@ def generate_html_report(
     <!-- OVERVIEW PANEL -->
     <div class="overview-panel">
         <div>
-            <div class="target-url">{result.target}</div>
+            <div class="target-url">{escape(result.target)}</div>
             <div class="meta-grid">
                 <div class="meta-item">
                     <span class="label">Endpoints Scanned</span>
@@ -439,22 +438,28 @@ def generate_html_report(
                 </div>
                 <div class="meta-item">
                     <span class="label">Discovery Source</span>
-                    <span class="val">{result.discovery_source}</span>
+                    <span class="val">{escape(result.discovery_source)}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="label">Scan Status</span>
+                    <span class="val">{escape(result.scan_status)}</span>
                 </div>
                 <div class="meta-item">
                     <span class="label">Total Findings</span>
                     <span class="val">{total_findings}</span>
                 </div>
-                {f'<div class="meta-item"><span class="label">OpenAPI Spec</span><span class="val">{result.specification_url}</span></div>' if result.specification_url else ''}
+                {f'<div class="meta-item"><span class="label">OpenAPI Spec</span><span class="val">{escape(result.specification_url)}</span></div>' if result.specification_url else ""}
             </div>
         </div>
 
         <div class="score-box">
             <div class="score-number">{result.security_score:.1f}</div>
             <div class="score-max">/ 100 Score</div>
-            <div class="risk-pill">{result.risk_level} RISK</div>
+            <div class="risk-pill">{escape(str(result.risk_level))} RISK</div>
         </div>
     </div>
+
+    {f'<div class="finding-block"><strong>Scan errors / limits:</strong><ul>{"".join(f"<li>{escape(error)}</li>" for error in result.errors)}</ul></div>' if result.errors else ""}
 
     <!-- SEVERITY SUMMARY CARDS -->
     <div class="severity-grid">

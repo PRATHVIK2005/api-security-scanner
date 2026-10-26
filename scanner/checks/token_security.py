@@ -12,14 +12,14 @@ JWT_PATTERN = re.compile(
 
 API_KEY_PATTERNS = [
     re.compile(
-        r'(?i)(api[_-]?key|apikey)'
+        r"(?i)(api[_-]?key|apikey)"
         r'["\']?\s*[:=]\s*["\']'
-        r'[a-zA-Z0-9_\-]{16,}'
+        r"[a-zA-Z0-9_\-]{16,}"
     ),
     re.compile(
-        r'(?i)(secret[_-]?key|access[_-]?key)'
+        r"(?i)(secret[_-]?key|access[_-]?key)"
         r'["\']?\s*[:=]\s*["\']'
-        r'[a-zA-Z0-9_\-]{16,}'
+        r"[a-zA-Z0-9_\-]{16,}"
     ),
 ]
 
@@ -39,7 +39,6 @@ def check_token_security(
 
     # Detect JWT tokens
     if JWT_PATTERN.search(response_text):
-
         findings.append(
             Finding(
                 severity=Severity.HIGH,
@@ -50,9 +49,7 @@ def check_token_security(
 
     # Detect potential API keys
     for pattern in API_KEY_PATTERNS:
-
         if pattern.search(response_text):
-
             findings.append(
                 Finding(
                     severity=Severity.HIGH,

@@ -144,7 +144,9 @@ def check_object_property_authorization(
             if isinstance(data, (dict, list)):
                 keys_found = _extract_keys_from_json(data)
                 live_sensitive = keys_found.intersection(SENSITIVE_RESPONSE_PROPERTIES)
-                if live_sensitive and not any(f.title == "Potential Sensitive Object Property Exposure" for f in findings):
+                if live_sensitive and not any(
+                    f.title == "Potential Sensitive Object Property Exposure" for f in findings
+                ):
                     props_str = ", ".join(sorted(live_sensitive))
                     findings.append(
                         Finding(

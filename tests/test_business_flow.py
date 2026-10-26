@@ -7,7 +7,9 @@ def test_detects_sensitive_business_flows():
         Endpoint(url="https://api.example.com/api/v1/checkout", method="POST", path="/api/v1/checkout"),
         Endpoint(url="https://api.example.com/auth/login", method="POST", path="/auth/login"),
         Endpoint(url="https://api.example.com/auth/password_reset", method="POST", path="/auth/password_reset"),
-        Endpoint(url="https://api.example.com/promotions/redeem-coupon", method="POST", path="/promotions/redeem-coupon"),
+        Endpoint(
+            url="https://api.example.com/promotions/redeem-coupon", method="POST", path="/promotions/redeem-coupon"
+        ),
     ]
 
     for ep in endpoints:

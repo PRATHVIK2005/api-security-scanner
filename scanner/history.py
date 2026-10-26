@@ -1,6 +1,7 @@
 """Scan history service layer for API Security Scanner."""
 
 from datetime import datetime, timezone
+import json
 from sqlalchemy.orm import Session, joinedload
 from scanner.db.models import Scan, Finding
 from scanner.db.session import get_session_factory
@@ -34,14 +35,16 @@ def save_scan(
             unreachable_endpoints=int(getattr(result, "unreachable_endpoints", 0)),
             discovery_source=getattr(result, "discovery_source", "Unknown"),
             specification_url=getattr(result, "specification_url", None),
+            scan_status=getattr(result, "scan_status", "complete"),
+            scan_started_at=getattr(result, "scan_started_at", None),
+            scan_completed_at=getattr(result, "scan_completed_at", None) or datetime.now(timezone.utc),
+            scan_errors=json.dumps(getattr(result, "errors", []), ensure_ascii=False),
+            discovery_attempts=json.dumps(getattr(result, "discovery_attempts", []), ensure_ascii=False),
+            discovery_limitations=json.dumps(getattr(result, "discovery_limitations", []), ensure_ascii=False),
         )
 
         for item in result.findings:
-            severity_str = (
-                item.severity.value
-                if hasattr(item.severity, "value")
-                else str(item.severity)
-            )
+            severity_str = item.severity.value if hasattr(item.severity, "value") else str(item.severity)
             finding_record = Finding(
                 severity=severity_str.upper(),
                 title=item.title,
@@ -50,6 +53,13 @@ def save_scan(
                 owasp=item.owasp,
                 description=item.description,
                 recommendation=item.recommendation,
+                confidence=item.confidence,
+                verification_status=item.verification_status,
+                evidence=item.evidence,
+                response_status=item.response_status,
+                check_id=item.check_id,
+                finding_id=item.finding_id,
+                finding_timestamp=item.timestamp,
             )
             scan_record.findings.append(finding_record)
 
@@ -75,11 +85,7 @@ def get_all_scans(session: Session | None = None) -> list[Scan]:
         own_session = True
 
     try:
-        return (
-            session.query(Scan)
-            .order_by(Scan.scan_date.desc(), Scan.id.desc())
-            .all()
-        )
+        return session.query(Scan).order_by(Scan.scan_date.desc(), Scan.id.desc()).all()
     finally:
         if own_session:
             session.close()
@@ -94,12 +100,7 @@ def get_scan_by_id(scan_id: int, session: Session | None = None) -> Scan | None:
         own_session = True
 
     try:
-        return (
-            session.query(Scan)
-            .options(joinedload(Scan.findings))
-            .filter(Scan.id == scan_id)
-            .first()
-        )
+        return session.query(Scan).options(joinedload(Scan.findings)).filter(Scan.id == scan_id).first()
     finally:
         if own_session:
             session.close()
@@ -139,18 +140,8 @@ def compare_scans(
         own_session = True
 
     try:
-        s1 = (
-            session.query(Scan)
-            .options(joinedload(Scan.findings))
-            .filter(Scan.id == scan1_id)
-            .first()
-        )
-        s2 = (
-            session.query(Scan)
-            .options(joinedload(Scan.findings))
-            .filter(Scan.id == scan2_id)
-            .first()
-        )
+        s1 = session.query(Scan).options(joinedload(Scan.findings)).filter(Scan.id == scan1_id).first()
+        s2 = session.query(Scan).options(joinedload(Scan.findings)).filter(Scan.id == scan2_id).first()
 
         if not s1 or not s2:
             return None

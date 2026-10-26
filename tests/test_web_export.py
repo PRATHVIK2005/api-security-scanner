@@ -25,10 +25,9 @@ def isolated_db():
     test_engine.dispose()
 
 
-
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return TestClient(app, client=("127.0.0.1", 50001))
 
 
 def create_saved_scan():

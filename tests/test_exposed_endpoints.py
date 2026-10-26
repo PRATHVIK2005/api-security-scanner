@@ -13,9 +13,7 @@ def test_exposed_admin_endpoint():
 
     assert len(findings) == 1
     assert findings[0].severity == Severity.HIGH
-    assert findings[0].title == (
-        "Exposed Administrative Endpoint"
-    )
+    assert findings[0].title == ("Exposed Administrative Endpoint")
 
 
 def test_exposed_debug_endpoint():

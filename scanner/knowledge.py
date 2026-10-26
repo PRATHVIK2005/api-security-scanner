@@ -24,7 +24,6 @@ FINDING_KNOWLEDGE = {
             "Implement authorization checks at the data/service layer to validate that the active session user has permission to access the requested resource ID."
         ),
     },
-
     # -------------------------------------------------------------
     # API2:2023 - Broken Authentication
     # -------------------------------------------------------------
@@ -39,9 +38,7 @@ FINDING_KNOWLEDGE = {
     },
     "JWT Token Exposed in Response": {
         "owasp": "API2:2023 - Broken Authentication",
-        "description": (
-            "A JSON Web Token (JWT) appears to be exposed directly in the API response body."
-        ),
+        "description": ("A JSON Web Token (JWT) appears to be exposed directly in the API response body."),
         "recommendation": (
             "Avoid echoing authentication tokens unnecessarily. Use secure HTTP-only cookies or ephemeral bearer tokens and store them securely."
         ),
@@ -66,14 +63,11 @@ FINDING_KNOWLEDGE = {
     },
     "Potential Private Key Exposure": {
         "owasp": "API2:2023 - Broken Authentication",
-        "description": (
-            "The API response appears to contain an unencrypted private cryptographic key."
-        ),
+        "description": ("The API response appears to contain an unencrypted private cryptographic key."),
         "recommendation": (
             "Immediately rotate the exposed key and ensure private keys are never transmitted via API responses."
         ),
     },
-
     # -------------------------------------------------------------
     # API3:2023 - Broken Object Property Level Authorization (BOPLA)
     # -------------------------------------------------------------
@@ -95,7 +89,6 @@ FINDING_KNOWLEDGE = {
             "Enforce strict input allow-lists for request models and prevent clients from directly binding privileged administrative fields."
         ),
     },
-
     # -------------------------------------------------------------
     # API4:2023 - Unrestricted Resource Consumption
     # -------------------------------------------------------------
@@ -117,7 +110,6 @@ FINDING_KNOWLEDGE = {
             "Configure and verify request rate limits and throttling policies on all public and resource-intensive endpoints."
         ),
     },
-
     # -------------------------------------------------------------
     # API5:2023 - Broken Function Level Authorization (BFLA)
     # -------------------------------------------------------------
@@ -132,50 +124,31 @@ FINDING_KNOWLEDGE = {
     },
     "Exposed Management Endpoint": {
         "owasp": "API5:2023 - Broken Function Level Authorization",
-        "description": (
-            "A management or actuator endpoint (/manage, /actuator) appears to be publicly accessible."
-        ),
-        "recommendation": (
-            "Restrict management endpoints to authorized system administrators and internal networks."
-        ),
+        "description": ("A management or actuator endpoint (/manage, /actuator) appears to be publicly accessible."),
+        "recommendation": ("Restrict management endpoints to authorized system administrators and internal networks."),
     },
     "Exposed Internal Endpoint": {
         "owasp": "API5:2023 - Broken Function Level Authorization",
-        "description": (
-            "An internal service endpoint (/internal) appears to be exposed on a public route."
-        ),
-        "recommendation": (
-            "Isolate internal microservices within private network boundaries and deny public routing."
-        ),
+        "description": ("An internal service endpoint (/internal) appears to be exposed on a public route."),
+        "recommendation": ("Isolate internal microservices within private network boundaries and deny public routing."),
     },
     "Exposed Debug Endpoint": {
         "owasp": "API5:2023 - Broken Function Level Authorization",
-        "description": (
-            "A debug endpoint (/debug) is accessible, potentially exposing internal application state."
-        ),
-        "recommendation": (
-            "Disable all debug and diagnostic endpoints in production deployments."
-        ),
+        "description": ("A debug endpoint (/debug) is accessible, potentially exposing internal application state."),
+        "recommendation": ("Disable all debug and diagnostic endpoints in production deployments."),
     },
     "Exposed Metrics Endpoint": {
         "owasp": "API5:2023 - Broken Function Level Authorization",
-        "description": (
-            "A telemetry or metrics endpoint (/metrics) is publicly reachable without authentication."
-        ),
-        "recommendation": (
-            "Restrict monitoring endpoints to authorized scraping services within internal subnets."
-        ),
+        "description": ("A telemetry or metrics endpoint (/metrics) is publicly reachable without authentication."),
+        "recommendation": ("Restrict monitoring endpoints to authorized scraping services within internal subnets."),
     },
     "Potential Broken Function Level Authorization": {
         "owasp": "API5:2023 - Broken Function Level Authorization",
-        "description": (
-            "A privileged function appears to lack proper role-based access controls."
-        ),
+        "description": ("A privileged function appears to lack proper role-based access controls."),
         "recommendation": (
             "Validate user roles and permissions on every privileged API operation before executing business logic."
         ),
     },
-
     # -------------------------------------------------------------
     # API6:2023 - Unrestricted Access to Sensitive Business Flows
     # -------------------------------------------------------------
@@ -188,7 +161,6 @@ FINDING_KNOWLEDGE = {
             "Implement multi-layered anti-automation defenses: rate limiting per user/IP, CAPTCHA on excessive attempts, and transaction velocity checks."
         ),
     },
-
     # -------------------------------------------------------------
     # API7:2023 - Server Side Request Forgery (SSRF)
     # -------------------------------------------------------------
@@ -201,27 +173,18 @@ FINDING_KNOWLEDGE = {
             "Strictly validate user-supplied URLs against an allow-list of schemes and domains. Block requests to internal RFC1918 IPs and cloud metadata (169.254.169.254)."
         ),
     },
-
     # -------------------------------------------------------------
     # API8:2023 - Security Misconfiguration
     # -------------------------------------------------------------
     "Missing X-Content-Type-Options Header": {
         "owasp": "API8:2023 - Security Misconfiguration",
-        "description": (
-            "The API response does not include the X-Content-Type-Options security header."
-        ),
-        "recommendation": (
-            "Set X-Content-Type-Options to 'nosniff' to prevent MIME-type sniffing."
-        ),
+        "description": ("The API response does not include the X-Content-Type-Options security header."),
+        "recommendation": ("Set X-Content-Type-Options to 'nosniff' to prevent MIME-type sniffing."),
     },
     "Missing X-Frame-Options Header": {
         "owasp": "API8:2023 - Security Misconfiguration",
-        "description": (
-            "The API response does not include the X-Frame-Options security header."
-        ),
-        "recommendation": (
-            "Set X-Frame-Options to DENY or SAMEORIGIN to prevent clickjacking."
-        ),
+        "description": ("The API response does not include the X-Frame-Options security header."),
+        "recommendation": ("Set X-Frame-Options to DENY or SAMEORIGIN to prevent clickjacking."),
     },
     "Missing Security Headers": {
         "owasp": "API8:2023 - Security Misconfiguration",
@@ -237,18 +200,14 @@ FINDING_KNOWLEDGE = {
         "description": (
             "The API allows requests from untrusted origins with an overly permissive CORS policy (Access-Control-Allow-Origin: *)."
         ),
-        "recommendation": (
-            "Restrict allowed origins, methods, and headers to trusted domain names."
-        ),
+        "recommendation": ("Restrict allowed origins, methods, and headers to trusted domain names."),
     },
     "Dangerous HTTP Method Supported": {
         "owasp": "API8:2023 - Security Misconfiguration",
         "description": (
             "The endpoint supports potentially dangerous or unnecessary HTTP methods (such as TRACE or TRACK)."
         ),
-        "recommendation": (
-            "Disable unsupported or debugging HTTP methods on web servers and API gateways."
-        ),
+        "recommendation": ("Disable unsupported or debugging HTTP methods on web servers and API gateways."),
     },
     "Server Technology Information Exposed": {
         "owasp": "API8:2023 - Security Misconfiguration",
@@ -268,38 +227,30 @@ FINDING_KNOWLEDGE = {
             "Use custom generic error handlers and ensure detailed stack traces are logged internally rather than returned to clients."
         ),
     },
-
     # -------------------------------------------------------------
     # API9:2023 - Improper Inventory Management
     # -------------------------------------------------------------
     "Potential Deprecated API Endpoint": {
         "owasp": "API9:2023 - Improper Inventory Management",
-        "description": (
-            "The endpoint name suggests that it may be a legacy, unmaintained, or deprecated API."
-        ),
+        "description": ("The endpoint name suggests that it may be a legacy, unmaintained, or deprecated API."),
         "recommendation": (
             "Review whether this endpoint is still required and remove or restrict access to deprecated APIs."
         ),
     },
     "Potential Outdated API Version": {
         "owasp": "API9:2023 - Improper Inventory Management",
-        "description": (
-            "The endpoint appears to use an early or pre-release API version prefix (e.g. /v0/, /v1beta)."
-        ),
+        "description": ("The endpoint appears to use an early or pre-release API version prefix (e.g. /v0/, /v1beta)."),
         "recommendation": (
             "Maintain an updated inventory of active API versions and retire unsupported legacy versions."
         ),
     },
     "Deprecated OpenAPI Operation Declared": {
         "owasp": "API9:2023 - Improper Inventory Management",
-        "description": (
-            "The OpenAPI specification explicitly flags this operation as deprecated."
-        ),
+        "description": ("The OpenAPI specification explicitly flags this operation as deprecated."),
         "recommendation": (
             "Plan a migration path for API consumers and decommission the deprecated operation according to policy."
         ),
     },
-
     # -------------------------------------------------------------
     # API10:2023 - Unsafe Consumption of APIs
     # -------------------------------------------------------------

@@ -70,8 +70,15 @@
             <div class="details-badge-group">
                 <span class="scan-id-large">SCAN RECORD #{{ scan.id }}</span>
                 <span class="mode-badge mode-{{ scan.scan_mode|lower }}">{{ scan.scan_mode|upper }} MODE</span>
+                <span class="risk-badge">{{ scan.scan_status|upper }} STATUS</span>
                 <span class="risk-badge risk-{{ scan.risk_level|lower }}">{{ scan.risk_level }} RISK</span>
             </div>
+            {% if scan_errors %}
+            <div class="finding-section-block" role="status">
+                <h4>SCAN LIMITATIONS AND ERRORS</h4>
+                <ul>{% for error in scan_errors %}<li>{{ error }}</li>{% endfor %}</ul>
+            </div>
+            {% endif %}
 
             <h2 class="details-target-url">{{ scan.target_url }}</h2>
 
@@ -194,6 +201,7 @@
             </div>
 
             <h3 class="finding-title">{{ finding.title }}</h3>
+            <p>Confidence: {{ finding.confidence or 'low' }} · Verification: {{ finding.verification_status or 'potential' }}</p>
 
             <div class="finding-endpoint-box">
                 <span class="endpoint-label">AFFECTED ENDPOINT:</span>
@@ -204,6 +212,13 @@
             <div class="finding-section-block">
                 <h4>VULNERABILITY DESCRIPTION</h4>
                 <p>{{ finding.description }}</p>
+            </div>
+            {% endif %}
+
+            {% if finding.evidence %}
+            <div class="finding-section-block">
+                <h4>EVIDENCE</h4>
+                <p>{{ finding.evidence }}</p>
             </div>
             {% endif %}
 
@@ -220,7 +235,7 @@
     <div class="cyber-panel empty-findings-box">
         <div class="clean-icon">🛡️</div>
         <h3>Zero Vulnerabilities Detected</h3>
-        <p>No security flaws were recorded for this audit. Target API adheres to all evaluated OWASP checks.</p>
+        <p>No configured checks reported a finding. Discovery may be incomplete and this result does not establish that the API is secure.</p>
     </div>
     {% endif %}
 

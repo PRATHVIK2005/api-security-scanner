@@ -1,6 +1,7 @@
 """Professional PDF security report generator for API Security Scanner using ReportLab."""
 
 from datetime import datetime, timezone
+from xml.sax.saxutils import escape
 from io import BytesIO
 from pathlib import Path
 
@@ -78,10 +79,31 @@ class NumberedCanvas(canvas.Canvas):
 def create_severity_chart(counts: dict[Severity, int], total_findings: int) -> Drawing:
     """Create a graphical horizontal bar chart visualizing findings by severity."""
     d = Drawing(480, 110)
-    
+
     # Background card
-    d.add(Rect(0, 0, 480, 110, fillColor=colors.HexColor("#f8fafc"), strokeColor=colors.HexColor("#e2e8f0"), strokeWidth=1, rx=4, ry=4))
-    d.add(String(16, 90, "SEVERITY DISTRIBUTION CHART", fontName="Helvetica-Bold", fontSize=9, fillColor=colors.HexColor("#475569")))
+    d.add(
+        Rect(
+            0,
+            0,
+            480,
+            110,
+            fillColor=colors.HexColor("#f8fafc"),
+            strokeColor=colors.HexColor("#e2e8f0"),
+            strokeWidth=1,
+            rx=4,
+            ry=4,
+        )
+    )
+    d.add(
+        String(
+            16,
+            90,
+            "SEVERITY DISTRIBUTION CHART",
+            fontName="Helvetica-Bold",
+            fontSize=9,
+            fillColor=colors.HexColor("#475569"),
+        )
+    )
 
     categories = [
         (Severity.CRITICAL, "CRITICAL", colors.HexColor("#dc2626")),
@@ -101,18 +123,29 @@ def create_severity_chart(counts: dict[Severity, int], total_findings: int) -> D
 
         # Label
         d.add(String(16, y_pos, label, fontName="Helvetica-Bold", fontSize=8, fillColor=color))
-        
+
         # Track
-        d.add(Rect(90, y_pos - 2, bar_max_width, 10, fillColor=colors.HexColor("#e2e8f0"), strokeColor=None, rx=2, ry=2))
-        
+        d.add(
+            Rect(90, y_pos - 2, bar_max_width, 10, fillColor=colors.HexColor("#e2e8f0"), strokeColor=None, rx=2, ry=2)
+        )
+
         # Fill
         if bar_width > 0:
             d.add(Rect(90, y_pos - 2, bar_width, 10, fillColor=color, strokeColor=None, rx=2, ry=2))
-        
+
         # Count & Percentage
-        text_info = f"{count} ({pct*100:.0f}%)" if total_findings > 0 else "0"
-        d.add(String(90 + bar_max_width + 12, y_pos, text_info, fontName="Helvetica", fontSize=8, fillColor=colors.HexColor("#334155")))
-        
+        text_info = f"{count} ({pct * 100:.0f}%)" if total_findings > 0 else "0"
+        d.add(
+            String(
+                90 + bar_max_width + 12,
+                y_pos,
+                text_info,
+                fontName="Helvetica",
+                fontSize=8,
+                fillColor=colors.HexColor("#334155"),
+            )
+        )
+
         y_pos -= 18
 
     return d
@@ -243,43 +276,69 @@ def generate_pdf_report(
 
     # Left: Target Info table
     target_data = [
-        [Paragraph("TARGET URL", meta_label), Paragraph(result.target, meta_val)],
+        [Paragraph("TARGET URL", meta_label), Paragraph(escape(result.target), meta_val)],
         [Paragraph("AUDIT DATE", meta_label), Paragraph(now_str, meta_val)],
-        [Paragraph("SCAN MODE", meta_label), Paragraph(scan_mode_display, meta_val)],
+        [Paragraph("SCAN MODE", meta_label), Paragraph(escape(scan_mode_display), meta_val)],
         [Paragraph("ENDPOINTS SCANNED", meta_label), Paragraph(str(result.endpoints_scanned), meta_val)],
         [Paragraph("UNREACHABLE", meta_label), Paragraph(str(result.unreachable_endpoints), meta_val)],
-        [Paragraph("DISCOVERY SOURCE", meta_label), Paragraph(result.discovery_source, meta_val)],
+        [Paragraph("DISCOVERY SOURCE", meta_label), Paragraph(escape(result.discovery_source), meta_val)],
+        [Paragraph("SCAN STATUS", meta_label), Paragraph(escape(result.scan_status), meta_val)],
     ]
     if result.specification_url:
-        target_data.append([Paragraph("OPENAPI SPEC", meta_label), Paragraph(result.specification_url, meta_val)])
+        target_data.append(
+            [Paragraph("OPENAPI SPEC", meta_label), Paragraph(escape(result.specification_url), meta_val)]
+        )
 
     target_table = Table(target_data, colWidths=[110, 200])
     target_table.setStyle(
-        TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#f1f5f9")),
-        ])
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#f1f5f9")),
+            ]
+        )
     )
 
     # Right: Score card
     score_data = [
         [Paragraph("SECURITY POSTURE SCORE", meta_label)],
-        [Paragraph(f"<b>{score:.1f}</b> <font size=10>/ 100</font>", ParagraphStyle("ScoreVal", fontName="Helvetica-Bold", fontSize=26, leading=30, textColor=score_color, alignment=1))],
-        [Paragraph(f"<b>{risk_level} RISK</b>", ParagraphStyle("RiskBadge", fontName="Helvetica-Bold", fontSize=9, textColor=score_color, alignment=1))],
+        [
+            Paragraph(
+                f"<b>{score:.1f}</b> <font size=10>/ 100</font>",
+                ParagraphStyle(
+                    "ScoreVal", fontName="Helvetica-Bold", fontSize=26, leading=30, textColor=score_color, alignment=1
+                ),
+            )
+        ],
+        [
+            Paragraph(
+                f"<b>{escape(risk_level)} RISK</b>",
+                ParagraphStyle("RiskBadge", fontName="Helvetica-Bold", fontSize=9, textColor=score_color, alignment=1),
+            )
+        ],
         [Spacer(1, 4)],
-        [Paragraph(f"Total Findings: <b>{len(result.findings)}</b>", ParagraphStyle("TotalCount", fontName="Helvetica", fontSize=9, alignment=1, textColor=colors.HexColor("#475569")))],
+        [
+            Paragraph(
+                f"Total Findings: <b>{len(result.findings)}</b>",
+                ParagraphStyle(
+                    "TotalCount", fontName="Helvetica", fontSize=9, alignment=1, textColor=colors.HexColor("#475569")
+                ),
+            )
+        ],
     ]
     score_table = Table(score_data, colWidths=[170])
     score_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
-            ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#e2e8f0")),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ])
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#e2e8f0")),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
     )
 
     overview_table = Table([[target_table, score_table]], colWidths=[310, 194])
@@ -300,23 +359,39 @@ def generate_pdf_report(
 
     sev_summary_table = Table(
         [
-            [Paragraph(f"<b>{h}</b>", ParagraphStyle("Hdr", fontName="Helvetica-Bold", fontSize=8, alignment=1, textColor=colors.white)) for h in summary_headers],
-            [Paragraph(f"<b>{v}</b>", ParagraphStyle("Val", fontName="Helvetica-Bold", fontSize=12, alignment=1, textColor=colors.HexColor("#0f172a"))) for v in summary_values],
+            [
+                Paragraph(
+                    f"<b>{h}</b>",
+                    ParagraphStyle("Hdr", fontName="Helvetica-Bold", fontSize=8, alignment=1, textColor=colors.white),
+                )
+                for h in summary_headers
+            ],
+            [
+                Paragraph(
+                    f"<b>{v}</b>",
+                    ParagraphStyle(
+                        "Val", fontName="Helvetica-Bold", fontSize=12, alignment=1, textColor=colors.HexColor("#0f172a")
+                    ),
+                )
+                for v in summary_values
+            ],
         ],
         colWidths=[100, 100, 100, 100, 104],
     )
     sev_summary_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#dc2626")),
-            ("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#ea580c")),
-            ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#d97706")),
-            ("BACKGROUND", (3, 0), (3, 0), colors.HexColor("#0284c7")),
-            ("BACKGROUND", (4, 0), (4, 0), colors.HexColor("#475569")),
-            ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#f8fafc")),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ])
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#dc2626")),
+                ("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#ea580c")),
+                ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#d97706")),
+                ("BACKGROUND", (3, 0), (3, 0), colors.HexColor("#0284c7")),
+                ("BACKGROUND", (4, 0), (4, 0), colors.HexColor("#475569")),
+                ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#f8fafc")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
     )
     story.append(sev_summary_table)
     story.append(Spacer(1, 12))
@@ -325,6 +400,11 @@ def generate_pdf_report(
     chart_drawing = create_severity_chart(severity_counts, len(result.findings))
     story.append(chart_drawing)
     story.append(Spacer(1, 16))
+    if result.errors:
+        story.append(Paragraph("Scan errors and limits", heading_style))
+        for error in result.errors:
+            story.append(Paragraph(f"• {escape(error)}", body_text))
+        story.append(Spacer(1, 10))
 
     # 5. DETAILED FINDINGS SECTION
     story.append(Paragraph(f"Detailed Security Findings ({len(result.findings)})", heading_style))
@@ -332,17 +412,26 @@ def generate_pdf_report(
 
     if not result.findings:
         no_findings_box = Table(
-            [[Paragraph("<b>Clean Bill of Health:</b> No security findings or vulnerabilities were detected during this audit.", body_text)]],
+            [
+                [
+                    Paragraph(
+                        "<b>No findings recorded:</b> No configured heuristic check reported a finding. Discovery may be incomplete; this does not establish that the API is secure.",
+                        body_text,
+                    )
+                ]
+            ],
             colWidths=[504],
         )
         no_findings_box.setStyle(
-            TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f0fdf4")),
-                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#bbf7d0")),
-                ("TOPPADDING", (0, 0), (-1, -1), 12),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
-                ("LEFTPADDING", (0, 0), (-1, -1), 16),
-            ])
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f0fdf4")),
+                    ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#bbf7d0")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 12),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 16),
+                ]
+            )
         )
         story.append(no_findings_box)
     else:
@@ -365,11 +454,7 @@ def generate_pdf_report(
         )
 
         for idx, finding in enumerate(sorted_findings, 1):
-            sev_str = (
-                finding.severity.value
-                if hasattr(finding.severity, "value")
-                else str(finding.severity).upper()
-            )
+            sev_str = finding.severity.value if hasattr(finding.severity, "value") else str(finding.severity).upper()
 
             if sev_str == "CRITICAL":
                 border_color = colors.HexColor("#dc2626")
@@ -387,41 +472,63 @@ def generate_pdf_report(
             finding_flowables = []
 
             # Finding Header Row: Badge | Method | Title
-            header_text = f"<b><font color='{border_color.hexval()}'>[{sev_str}]</font> {finding.title}</b>"
+            header_text = f"<b><font color='{border_color.hexval()}'>[{sev_str}]</font> {escape(finding.title)}</b>"
             finding_flowables.append(Paragraph(header_text, finding_title))
-            
+
             method_str = getattr(finding, "method", "UNKNOWN") or "UNKNOWN"
-            endpoint_line = f"<b>METHOD:</b> {method_str} &nbsp;&nbsp;|&nbsp;&nbsp; <b>ENDPOINT:</b> {finding.endpoint}"
+            endpoint_line = f"<b>METHOD:</b> {escape(method_str)} &nbsp;&nbsp;|&nbsp;&nbsp; <b>ENDPOINT:</b> {escape(finding.endpoint)}"
             if finding.owasp:
-                endpoint_line += f"<br/><b>OWASP:</b> {finding.owasp}"
+                endpoint_line += f"<br/><b>OWASP:</b> {escape(finding.owasp)}"
             finding_flowables.append(Paragraph(endpoint_line, finding_endpoint))
+            verification_line = (
+                f"<b>CONFIDENCE:</b> {escape(finding.confidence)} &nbsp;&nbsp;|&nbsp;&nbsp; "
+                f"<b>VERIFICATION:</b> {escape(finding.verification_status)}"
+            )
+            finding_flowables.append(Paragraph(verification_line, body_text))
             finding_flowables.append(Spacer(1, 4))
 
             # Description
             if finding.description:
                 finding_flowables.append(Paragraph("<b>Description:</b>", meta_label))
-                finding_flowables.append(Paragraph(finding.description, body_text))
+                finding_flowables.append(Paragraph(escape(finding.description), body_text))
+                finding_flowables.append(Spacer(1, 4))
+
+            if finding.evidence:
+                finding_flowables.append(Paragraph("<b>Evidence:</b>", meta_label))
+                finding_flowables.append(Paragraph(escape(finding.evidence), body_text))
                 finding_flowables.append(Spacer(1, 4))
 
             # Recommendation
             if finding.recommendation:
                 recom_box = Table(
-                    [[
-                        Paragraph("<b>Remediation:</b>", ParagraphStyle("RecomHdr", fontName="Helvetica-Bold", fontSize=8, textColor=colors.HexColor("#15803d"))),
-                        Paragraph(finding.recommendation, recom_text),
-                    ]],
+                    [
+                        [
+                            Paragraph(
+                                "<b>Remediation:</b>",
+                                ParagraphStyle(
+                                    "RecomHdr",
+                                    fontName="Helvetica-Bold",
+                                    fontSize=8,
+                                    textColor=colors.HexColor("#15803d"),
+                                ),
+                            ),
+                            Paragraph(escape(finding.recommendation), recom_text),
+                        ]
+                    ],
                     colWidths=[70, 410],
                 )
                 recom_box.setStyle(
-                    TableStyle([
-                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f0fdf4")),
-                        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#bbf7d0")),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("TOPPADDING", (0, 0), (-1, -1), 4),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                    ])
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f0fdf4")),
+                            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#bbf7d0")),
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                            ("TOPPADDING", (0, 0), (-1, -1), 4),
+                            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                        ]
+                    )
                 )
                 finding_flowables.append(recom_box)
 
@@ -430,15 +537,17 @@ def generate_pdf_report(
             # Encapsulate each finding inside a styled card Table
             card_content = Table([[finding_flowables]], colWidths=[504])
             card_content.setStyle(
-                TableStyle([
-                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#ffffff")),
-                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
-                    ("LINELEFT", (0, 0), (-1, -1), 3.5, border_color),
-                    ("TOPPADDING", (0, 0), (-1, -1), 8),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                ])
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#ffffff")),
+                        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                        ("LINELEFT", (0, 0), (-1, -1), 3.5, border_color),
+                        ("TOPPADDING", (0, 0), (-1, -1), 8),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                    ]
+                )
             )
 
             story.append(KeepTogether([card_content, Spacer(1, 10)]))

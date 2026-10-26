@@ -31,9 +31,7 @@ def test_detects_python_traceback():
 
     assert len(findings) == 1
     assert findings[0].severity == Severity.MEDIUM
-    assert findings[0].title == (
-        "Python traceback information exposed"
-    )
+    assert findings[0].title == ("Python traceback information exposed")
 
 
 def test_detects_stack_trace():
@@ -66,9 +64,7 @@ def test_detects_server_header():
 
     assert len(findings) == 1
     assert findings[0].severity == Severity.LOW
-    assert findings[0].title == (
-        "Server Technology Information Exposed"
-    )
+    assert findings[0].title == ("Server Technology Information Exposed")
 
 
 def test_no_disclosure_found():
@@ -83,14 +79,12 @@ def test_no_disclosure_found():
     )
 
     assert findings == []
-    
+
+
 def test_does_not_duplicate_error_findings():
 
     response = make_response(
-        text=(
-            "Traceback occurred. "
-            "A stack trace is available."
-        ),
+        text=("Traceback occurred. A stack trace is available."),
     )
 
     findings = check_information_disclosure(
@@ -114,6 +108,4 @@ def test_detects_framework_information():
     )
 
     assert len(findings) == 1
-    assert findings[0].title == (
-        "Framework Information Exposed"
-    )
+    assert findings[0].title == ("Framework Information Exposed")

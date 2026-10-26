@@ -23,11 +23,7 @@ def check_security_headers(
     findings = []
 
     for header, info in SECURITY_HEADERS.items():
-
-        if header.lower() not in {
-            key.lower() for key in response.headers.keys()
-        }:
-
+        if header.lower() not in {key.lower() for key in response.headers.keys()}:
             findings.append(
                 Finding(
                     title=f"Missing {header} Header",

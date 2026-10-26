@@ -169,7 +169,7 @@
             <div id="active-mode-warning" class="active-mode-warning {% if selected_mode != 'active' %}hidden{% endif %}">
                 <span class="warning-icon">⚠️</span>
                 <div>
-                    <strong>Active Scan Mode:</strong> Sends stress payloads and rate-limit probe bursts. Only test targets you have explicit authorization to audit.
+                    <strong>Active Scan Mode:</strong> Adds a small, bounded set of read-only GET probes for rate-limit indicators. It never sends write methods. Only test authorized targets.
                 </div>
             </div>
 
@@ -187,7 +187,7 @@
 
         <div class="section-title">
             <div>
-                <span class="section-label">AUDIT COMPLETE</span>
+                <span class="section-label">SCAN {{ result.scan_status|upper }}</span>
                 <h2>SECURITY ANALYSIS REPORT</h2>
             </div>
             <div class="results-meta-badges">
@@ -433,6 +433,10 @@
         <!-- SYSTEM STATS GRID -->
         <div class="summary-grid">
             <div class="summary-card">
+                <span class="stat-label">SCAN STATUS</span>
+                <strong class="number">{{ result.scan_status|upper }}</strong>
+            </div>
+            <div class="summary-card">
                 <span class="stat-label">TOTAL FINDINGS</span>
                 <strong class="number {% if result.findings %}danger-number{% endif %}">
                     {{ result.findings|length }}
@@ -458,6 +462,12 @@
                 <div id="active-filter-indicator" class="active-filter-text">Showing All Findings</div>
             </div>
         </div>
+        {% if result.errors %}
+        <div class="cyber-panel" role="status">
+            <h3>Scan limitations and errors</h3>
+            <ul>{% for error in result.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
 
         <!-- FINDINGS TABLE SECTION -->
         <section class="findings-section cyber-panel">
@@ -596,9 +606,14 @@
                                                 <span class="detail-icon">📋</span>
                                                 <h5>VULNERABILITY DESCRIPTION</h5>
                                             </div>
+                                            <p class="detail-text">Confidence: {{ finding.confidence }} · Verification: {{ finding.verification_status }}</p>
                                             <p class="detail-text">
                                                 {{ finding.description or "No detailed description available." }}
                                             </p>
+                                            {% if finding.evidence %}
+                                            <h5>Evidence</h5>
+                                            <p class="detail-text">{{ finding.evidence }}</p>
+                                            {% endif %}
                                         </div>
 
                                         <!-- OWASP CATEGORY CARD -->

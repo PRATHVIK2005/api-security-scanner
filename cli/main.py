@@ -11,6 +11,7 @@ from scanner.reports.html_report import generate_html_report
 from scanner.reports.pdf_report import generate_pdf_report
 from scanner.summary import count_findings_by_severity
 from scanner.validation import InvalidURLError
+from scanner.redaction import redact_text, redact_url
 
 
 app = typer.Typer(
@@ -60,6 +61,13 @@ def scan_api(
         "-o",
         help="Save report to a file (default: report.pdf / report.html if format is pdf/html)",
     ),
+    spec_url: str | None = typer.Option(None, "--spec-url", help="Explicit same-origin OpenAPI specification URL"),
+    endpoints_file: Path | None = typer.Option(
+        None, "--endpoints", help="JSON/YAML endpoint list for APIs without OpenAPI"
+    ),
+    bola_config: Path | None = typer.Option(
+        None, "--bola-config", help="Opt-in JSON with two authorized test tokens and a known object owner marker"
+    ),
 ):
     """Scan an API for security issues."""
 
@@ -71,16 +79,12 @@ def scan_api(
                 k, v = h.split(":", 1)
                 parsed_headers[k.strip()] = v.strip()
             else:
-                console.print(
-                    f"[bold yellow]Warning:[/bold yellow] Invalid header format '{h}'. Expected 'Name: Value'."
-                )
+                console.print("[bold red]Invalid header.[/bold red] Expected 'Name: Value'.")
+                raise typer.Exit(code=1)
 
     format_normalized = output_format.lower().strip()
     if format_normalized not in {"terminal", "json", "pdf", "html"}:
-        console.print(
-            "[bold red]Invalid format.[/bold red] "
-            "Use 'terminal', 'json', 'pdf', or 'html'."
-        )
+        console.print("[bold red]Invalid format.[/bold red] Use 'terminal', 'json', 'pdf', or 'html'.")
         raise typer.Exit(code=1)
 
     try:
@@ -89,17 +93,21 @@ def scan_api(
             mode=mode,
             token=token,
             headers=parsed_headers if parsed_headers else None,
+            specification_url=spec_url,
+            endpoint_list=str(endpoints_file) if endpoints_file else None,
+            bola_config_file=str(bola_config) if bola_config else None,
         )
     except (InvalidURLError, ValueError) as exc:
         console.print(f"[bold red]Validation Error:[/bold red] {exc}")
         raise typer.Exit(code=1)
     except Exception as exc:
-        console.print(f"[bold red]Scan Error:[/bold red] {exc}")
+        console.print(f"[bold red]Scan Error:[/bold red] {redact_text(str(exc))}")
         raise typer.Exit(code=1)
 
     # Persist scan to SQLite history if DB is configured
     try:
         from scanner.history import save_scan
+
         save_scan(result, mode=mode.value if hasattr(mode, "value") else str(mode))
     except Exception:
         pass
@@ -132,6 +140,12 @@ def scan_api(
     console.print("\n[bold cyan]API Security Scan Results[/bold cyan]")
     console.print(f"Target: {result.target}")
     console.print(f"Discovery Source: {result.discovery_source}")
+    console.print(f"Scan Status: {result.scan_status}")
+    for error in result.errors:
+        console.print(f"[yellow]Scan limitation: {error}[/yellow]")
+    if result.discovery_limitations:
+        for limitation in result.discovery_limitations:
+            console.print(f"[yellow]Discovery limitation: {limitation}[/yellow]")
 
     if result.specification_url:
         console.print(f"Specification: {result.specification_url}")
@@ -151,6 +165,8 @@ def scan_api(
     console.print(f"LOW:      {severity_counts[Severity.LOW]}")
 
     console.print(f"\nScan Mode: {mode.value.upper() if hasattr(mode, 'value') else str(mode).upper()}")
+    if mode == ScanMode.ACTIVE:
+        console.print("Active mode used bounded read-only probes; write methods are not sent.")
 
     # Safe authentication reporting - never print token secret
     if token:
@@ -170,7 +186,7 @@ def scan_api(
     for finding in result.findings:
         table.add_row(
             finding.severity.value if hasattr(finding.severity, "value") else str(finding.severity),
-            finding.title,
+            f"{finding.title} ({finding.confidence}, {finding.verification_status})",
             getattr(finding, "method", "UNKNOWN") or "UNKNOWN",
             finding.endpoint,
         )
@@ -205,7 +221,7 @@ def view_history():
         table.add_row(
             str(s.id),
             date_str,
-            s.target_url,
+            redact_url(s.target_url) or s.target_url,
             f"{s.security_score:.1f}",
             str(s.risk_level),
             str(s.findings_count),
@@ -234,15 +250,15 @@ def compare_history(
         raise typer.Exit(code=1)
 
     console.print(f"\n[bold cyan]Scan Comparison: #{scan1} vs #{scan2}[/bold cyan]")
-    console.print(f"Target: {diff['scan1'].target_url}")
+    console.print(f"Target: {redact_url(diff['scan1'].target_url) or diff['scan1'].target_url}")
     console.print(f"Status: [bold]{diff['status']}[/bold] — {diff['status_text']}")
-    
+
     score_sign = "+" if diff["score_diff"] > 0 else ""
     console.print(
         f"Score Change: [bold]{score_sign}{diff['score_diff']}[/bold] "
         f"({diff['scan1'].security_score:.1f} -> {diff['scan2'].security_score:.1f})"
     )
-    
+
     find_sign = "+" if diff["findings_diff"] > 0 else ""
     console.print(
         f"Findings Change: [bold]{find_sign}{diff['findings_diff']}[/bold] "

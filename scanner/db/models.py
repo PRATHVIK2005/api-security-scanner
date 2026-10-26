@@ -19,6 +19,12 @@ class Scan(Base):
     unreachable_endpoints = Column(Integer, nullable=False, default=0)
     discovery_source = Column(String(50), nullable=True, default="Unknown")
     specification_url = Column(String(1024), nullable=True)
+    scan_status = Column(String(20), nullable=False, default="complete", server_default="complete")
+    scan_started_at = Column(DateTime, nullable=True)
+    scan_completed_at = Column(DateTime, nullable=True)
+    scan_errors = Column(Text, nullable=False, default="[]", server_default="[]")
+    discovery_attempts = Column(Text, nullable=False, default="[]", server_default="[]")
+    discovery_limitations = Column(Text, nullable=False, default="[]", server_default="[]")
 
     findings = relationship(
         "Finding",
@@ -44,6 +50,13 @@ class Finding(Base):
     owasp = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
     recommendation = Column(Text, nullable=True)
+    confidence = Column(String(20), nullable=False, default="low", server_default="low")
+    verification_status = Column(String(30), nullable=False, default="potential", server_default="potential")
+    evidence = Column(Text, nullable=True)
+    response_status = Column(Integer, nullable=True)
+    check_id = Column(String(100), nullable=True)
+    finding_id = Column(String(64), nullable=True)
+    finding_timestamp = Column(DateTime, nullable=True)
 
     scan = relationship("Scan", back_populates="findings")
 

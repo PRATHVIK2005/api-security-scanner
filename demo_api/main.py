@@ -17,9 +17,7 @@ app.add_middleware(
 
 @app.get("/")
 def home():
-    return {
-        "message": "Demo API is running"
-    }
+    return {"message": "Demo API is running"}
 
 
 @app.get("/users")
@@ -48,16 +46,16 @@ def get_products():
 
 @app.post("/users")
 def create_user():
-    return {
-        "message": "User created"
-    }
-    
+    return {"message": "User created"}
+
+
 @app.get("/admin")
 def admin():
     return {
         "message": "Admin panel exposed",
     }
-    
+
+
 @app.get("/debug")
 def debug():
     return {
@@ -106,11 +104,6 @@ def get_v1beta_admin():
 @app.get("/token-test")
 def token_test():
     return {
-        "token": (
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-            "eyJ1c2VyX2lkIjoxMjN9."
-            "abc123signature"
-        ),
+        "token": ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxMjN9.abc123signature"),
         "api_key": "abcdefghijklmnop123456",
     }
-

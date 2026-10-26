@@ -17,16 +17,9 @@ def check_rate_limiting(
 ) -> list[Finding]:
     """Check whether the response exposes rate-limiting information."""
 
-    response_headers = {
-        header.lower()
-        for header in response.headers.keys()
-    }
+    response_headers = {header.lower() for header in response.headers.keys()}
 
-    has_rate_limit_headers = bool(
-        RATE_LIMIT_HEADERS.intersection(
-            response_headers
-        )
-    )
+    has_rate_limit_headers = bool(RATE_LIMIT_HEADERS.intersection(response_headers))
 
     if not has_rate_limit_headers:
         return [
@@ -41,8 +34,7 @@ def check_rate_limiting(
                 ),
                 endpoint=endpoint,
                 recommendation=(
-                    "Implement rate limiting for API endpoints, "
-                    "especially authentication and sensitive endpoints."
+                    "Implement rate limiting for API endpoints, especially authentication and sensitive endpoints."
                 ),
             )
         ]

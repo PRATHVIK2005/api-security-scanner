@@ -47,8 +47,7 @@ def test_restricted_cors():
     response = httpx.Response(
         200,
         headers={
-            "Access-Control-Allow-Origin":
-                "https://trusted.example.com",
+            "Access-Control-Allow-Origin": "https://trusted.example.com",
         },
     )
 
